@@ -1,0 +1,143 @@
+/* =========================================
+   C2 HYBRID LAYOUT ENGINE - WHITE ANGEL THEME
+   ========================================= */
+
+:root {
+    /* 🎨 White Angel Palette */
+    --c2-main-bg: #f8fafc;
+    /* Soft Light Background */
+    --c2-card-bg: #ffffff;
+    --c2-text-title: #0f172a;
+    /* Deep Slate Title */
+    --c2-text-main: #475569;
+    /* Slate Main Text */
+    --c2-accent: #6366f1;
+    /* Indigo Primary */
+    --c2-accent-hover: #4f46e5;
+    --c2-secondary: #f1f5f9;
+    /* Light Grey for zones */
+    --c2-border: #e2e8f0;
+    /* Subtle divider */
+
+    /* Light Clean Sidebar Settings */
+    --c2-sidebar-bg: #ffffff;
+    --c2-sidebar-text: #64748b;
+    --c2-sidebar-active-bg: #f1f5f9;
+    --c2-sidebar-active-text: #6366f1;
+
+    /* Element Plus Overrides (Indigo Focus) */
+    --el-color-primary: var(--c2-accent) !important;
+    --el-bg-color: var(--c2-main-bg) !important;
+    --el-text-color-primary: var(--c2-text-title) !important;
+    --el-text-color-regular: var(--c2-text-main) !important;
+    --el-border-color-lighter: var(--c2-border) !important;
+
+    --el-main-padding: 24px !important;
+}
+
+/* 1. Global Reset */
+html,
+body,
+#app {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    font-family: 'Inter', -apple-system, sans-serif;
+    background-color: var(--c2-main-bg);
+    color: var(--c2-text-main);
+    -webkit-font-smoothing: antialiased;
+}
+
+/* 2. Layout Structure */
+.el-container {
+    height: 100% !important;
+}
+
+/* 3. Sidebar (White Angel Style) */
+.el-aside {
+    background-color: var(--c2-sidebar-bg) !important;
+    border-right: 1px solid var(--c2-border) !important;
+    box-shadow: 4px 0 10px rgba(0, 0, 0, 0.02);
+    z-index: 10;
+}
+
+.el-menu {
+    border-right: none !important;
+    background-color: transparent !important;
+}
+
+.el-menu-item {
+    color: var(--c2-sidebar-text) !important;
+    height: 50px !important;
+    line-height: 50px !important;
+    margin: 4px 12px !important;
+    border-radius: 10px !important;
+    transition: all 0.3s ease !important;
+}
+
+.el-menu-item:hover {
+    background-color: var(--c2-sidebar-active-bg) !important;
+    color: var(--c2-text-title) !important;
+}
+
+.el-menu-item.is-active {
+    background-color: var(--c2-sidebar-active-bg) !important;
+    color: var(--c2-sidebar-active-text) !important;
+    font-weight: 600 !important;
+}
+
+.el-menu-item.is-active::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    top: 25%;
+    height: 50%;
+    width: 4px;
+    background-color: var(--c2-accent);
+    border-radius: 4px 0 0 4px;
+}
+
+/* 4. Content Area */
+.el-main {
+    background-color: var(--c2-main-bg) !important;
+    overflow-y: auto;
+}
+
+/* 5. Component Styling */
+.el-card {
+    border-radius: 16px !important;
+    border: 1px solid var(--c2-border) !important;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03) !important;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.el-card:hover {
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.08) !important;
+}
+
+/* Table Enhancements */
+.el-table {
+    --el-table-header-bg-color: var(--c2-secondary) !important;
+    --el-table-border-color: var(--c2-border) !important;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
