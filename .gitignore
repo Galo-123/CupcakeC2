@@ -1,0 +1,20 @@
+# Build and dependency directories
+/Client/target/
+/server/dist/
+/server/frontend-v2/dist/
+/server/frontend-v2/node_modules/
+/server/temp_builds/
+node_modules/
+
+# Local databases and storage
+/server/storage/*.db
+/server/storage/build_cache/
+/server/storage/payloads/
+/server/storage/agent_files/
+
+# IDE and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.log

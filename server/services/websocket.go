@@ -90,7 +90,8 @@ func ProcessWebSocket(conn *websocket.Conn, remoteAddr string, ln *globals.Liste
 		_ = messageType // Avoid "unused" but informative for debugging
 
 		keyBytes := resolveAESKey(ln.EncryptKey)
-		saltBytes := []byte(ln.EncryptionSalt)
+		saltBytes := make([]byte, 32)
+		copy(saltBytes, []byte(ln.EncryptionSalt))
 		
 		// Derive the real session key if salt is present
 		sessionKey := utils.DeriveKey(keyBytes, saltBytes)
@@ -389,7 +390,8 @@ func ProcessTCPConnection(conn net.Conn, remoteAddr string, ln *globals.Listener
 		}
 
 		keyBytes := resolveAESKey(ln.EncryptKey)
-		saltBytes := []byte(ln.EncryptionSalt)
+		saltBytes := make([]byte, 32)
+		copy(saltBytes, []byte(ln.EncryptionSalt))
 		sessionKey := utils.DeriveKey(keyBytes, saltBytes)
 		
 		useAES := isAESEnabled(ln.EncryptMode) || (strings.TrimSpace(ln.EncryptMode) == "" && len(keyBytes) > 0)
@@ -560,7 +562,8 @@ func WriteEncryptedMessage(client *globals.Client, msg interface{}) error {
 	}
 
 	keyBytes := resolveAESKey(client.EncryptKey)
-	saltBytes := []byte(client.EncryptionSalt)
+	saltBytes := make([]byte, 32)
+	copy(saltBytes, []byte(client.EncryptionSalt))
 	sessionKey := utils.DeriveKey(keyBytes, saltBytes)
 	
 	useAES := isAESEnabled(client.EncryptMode) || (strings.TrimSpace(client.EncryptMode) == "" && len(keyBytes) > 0)
@@ -624,11 +627,13 @@ func resolveAESKey(key string) []byte {
 
 func normalizeAESKey(key string) []byte {
 	key = strings.TrimSpace(key)
-	key = strings.Trim(key, "\x00")
 	if len(key) == 64 && isHexString(key) {
 		if decoded, err := hex.DecodeString(key); err == nil && len(decoded) == 32 {
 			return decoded
 		}
 	}
-	return []byte(key)
+	// Pad or truncate to 32 bytes (matches Rust client resize(32, 0x00))
+	res := make([]byte, 32)
+	copy(res, []byte(key))
+	return res
 }
