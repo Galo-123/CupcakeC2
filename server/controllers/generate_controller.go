@@ -69,6 +69,20 @@ func HandleGenerate(c *gin.Context) {
 			default:
 				templateName = "client_template_windows.exe"
 			}
+		} else if req.OS == "linux" {
+			switch strings.ToUpper(ln.Protocol) {
+			case "WS":
+				templateName = "client_template_linux"
+			case "TCP":
+				templateName = "client_template_linux_tcp"
+			case "DNS":
+				templateName = "client_template_linux_dns"
+			default:
+				templateName = "client_template_linux"
+			}
+			if req.Arch == "arm64" {
+				templateName = "client_template_linux_arm64"
+			}
 		}
 		
 		templatePath := filepath.Join("assets", templateName)
