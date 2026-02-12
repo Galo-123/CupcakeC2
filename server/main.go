@@ -128,6 +128,7 @@ func main() {
 		api.POST("/auth/logout", func(c *gin.Context) { c.JSON(200, gin.H{"msg": "logged out"}) })
 		api.POST("/maintenance/reset", controllers.HandleMaintenanceReset)
 		api.GET("/maintenance/export", controllers.HandleMaintenanceExport)
+		api.POST("/maintenance/update_templates", controllers.HandleUpdateTemplates)
 	}
 
 	distFS, _ := fs.Sub(embeddedFiles, "dist")

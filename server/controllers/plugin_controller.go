@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -23,6 +24,7 @@ func HandleListPlugins(c *gin.Context) {
 func HandleRunPlugin(c *gin.Context) {
 	var req struct {
 		UUID      string `json:"uuid"`
+		AgentID   string `json:"agent_id"` // Support both uuid and agent_id
 		PluginID  string `json:"plugin_id"`
 		Args      string `json:"args"`
 	}
@@ -31,7 +33,20 @@ func HandleRunPlugin(c *gin.Context) {
 		return
 	}
 
-	taskID, err := services.DeployPlugin(req.UUID, req.PluginID, req.Args)
+	// Use AgentID if UUID is empty
+	targetUUID := strings.TrimSpace(req.UUID)
+	if targetUUID == "" {
+		targetUUID = strings.TrimSpace(req.AgentID)
+	}
+
+	if targetUUID == "" {
+		c.JSON(400, gin.H{"error": "uuid or agent_id is required"})
+		return
+	}
+
+	fmt.Printf("[Debug] Running plugin %s on agent %s\n", req.PluginID, targetUUID)
+
+	taskID, err := services.DeployPlugin(targetUUID, req.PluginID, req.Args)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return

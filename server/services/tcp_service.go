@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"time"
 )
 
 // StartTCPListener starts the raw TCP server with Yamux multiplexing
@@ -34,7 +35,8 @@ func StartTCPListener(ln *globals.Listener) {
 		}
 		
 		config := yamux.DefaultConfig()
-		config.EnableKeepAlive = false
+		config.EnableKeepAlive = true
+		config.KeepAliveInterval = 30 * time.Second
 		config.LogOutput = io.Discard
 
 		session, err := yamux.Server(conn, config)

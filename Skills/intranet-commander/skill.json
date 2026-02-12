@@ -1,0 +1,25 @@
+{
+  "name": "intranet-commander",
+  "version": "1.1.0",
+  "description": "内网安全审计与加固指挥官：主机基线、AD 安全审计、容器/虚拟化加固建议与复测清单",
+  "author": "Antigravity",
+  "license": "MIT",
+  "keywords": [
+    "intranet",
+    "security-audit",
+    "hardening",
+    "baseline",
+    "active-directory",
+    "container-security",
+    "kubernetes-security",
+    "virtualization"
+  ],
+  "entry": "index.js",
+  "features": {
+    "baseline_audit": ["windows", "linux"],
+    "directory_services_audit": ["active_directory"],
+    "container_audit": ["docker", "k8s"],
+    "virtualization_review": ["vm_hardening"],
+    "reporting": ["finding_template", "prioritization"]
+  }
+}

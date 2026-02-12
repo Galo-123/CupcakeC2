@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
+	"cupcake-server/services"
 )
 
 // HandleLogin handles user authentication
@@ -227,4 +228,38 @@ func HandleMaintenanceExport(c *gin.Context) {
 
 	c.Header("Content-Disposition", "attachment; filename=cupcake_export.json")
 	c.JSON(http.StatusOK, exportData)
+}
+
+// HandleUpdateTemplates triggers a rebuild of the v3.0.1 loader templates
+func HandleUpdateTemplates(c *gin.Context) {
+	logChan := make(chan string, 50)
+	var logs []string
+	
+	// Collect logs in a separate goroutine
+	done := make(chan bool)
+	go func() {
+		for l := range logChan {
+			logs = append(logs, l)
+		}
+		done <- true
+	}()
+
+	err := services.RebuildTemplates(logChan)
+	close(logChan)
+	<-done
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"status": "error",
+			"error":  err.Error(),
+			"logs":   logs,
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status": "success",
+		"msg":    "v3.0.1 模板集更新完成",
+		"logs":   logs,
+	})
 }

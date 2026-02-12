@@ -11,6 +11,7 @@ node_modules/
 /server/storage/build_cache/
 /server/storage/payloads/
 /server/storage/agent_files/
+/server/storage/logs/
 
 # IDE and OS files
 .idea/

@@ -179,14 +179,19 @@ impl Transport for TcpTransport {
                         debug!("Yamux connection driver terminated");
                     });
 
-                    let control_stream = match control.open_stream().await {
-                        Ok(s) => {
+                    let control_stream = match tokio::time::timeout(std::time::Duration::from_secs(10), control.open_stream()).await {
+                        Ok(Ok(s)) => {
                             println!("[+] Control Stream Opened. Sending registration...");
                             s
                         }
-                        Err(e) => {
+                        Ok(Err(e)) => {
                             return Err(ClientError::ConnectionError(
                                 format!("Failed to open Yamux control stream: {}", e)
+                            ));
+                        }
+                        Err(_) => {
+                            return Err(ClientError::ConnectionError(
+                                "Timeout opening Yamux control stream".to_string()
                             ));
                         }
                     };

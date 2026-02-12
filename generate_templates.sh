@@ -45,7 +45,7 @@ build_template() {
             if [ "$arch" == "x86" ]; then target="i686-pc-windows-gnu"; else target="x86_64-pc-windows-gnu"; fi
             ;;
         linux)
-            if [ "$arch" == "arm64" ]; then target="aarch64-unknown-linux-gnu"; else target="x86_64-unknown-linux-gnu"; fi
+            if [ "$arch" == "arm64" ]; then target="aarch64-unknown-linux-musl"; else target="x86_64-unknown-linux-musl"; fi
             ;;
     esac
 

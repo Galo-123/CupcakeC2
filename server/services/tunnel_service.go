@@ -291,11 +291,19 @@ func handleSocksConnection(conn net.Conn, agentID, user, pass string) {
     // 4. Send Protocol Header (0x02 for SOCKS/HTTP-TCP)
     stream.Write([]byte{0x02})
 
-    // 5. Send Target Info to Agent
-    sendTargetInfo(stream, targetHost, strconv.Itoa(int(port)))
+	// 5. Send Target Info to Agent
+	sendTargetInfo(stream, targetHost, strconv.Itoa(int(port)))
 
-    // 6. Respond to SOCKS Client "Success"
-    conn.Write([]byte{0x05, 0x00, 0x00, 0x01, 0,0,0,0, 0,0})
+	// ⚡️ V3.0.1 Fix: Wait for Agent's Ack (1 byte) before piping
+	// This prevents the Agent's internal ack byte (0x01) from leaking into the SOCKS tunnel
+	ack := make([]byte, 1)
+	if _, err := io.ReadFull(stream, ack); err != nil || ack[0] != 0x01 {
+		conn.Write([]byte{0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0}) // 0x05 = Connection refused
+		return
+	}
+
+	// 6. Respond to SOCKS Client "Success"
+	conn.Write([]byte{0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
 
     // 7. Pipe Data
     go io.Copy(stream, conn)
@@ -366,8 +374,20 @@ func handleHTTPConnection(conn net.Conn, agentID, user, pass string) {
     // 2. Send Protocol Header (0x02)
     stream.Write([]byte{0x02})
 
-    // 3. Send Target Info
-    sendTargetInfo(stream, targetHost, targetPort)
+	// 3. Send Target Info
+	sendTargetInfo(stream, targetHost, targetPort)
+
+	// ⚡️ V3.0.1 Fix: Wait for Agent's Ack (1 byte)
+	ack := make([]byte, 1)
+	if _, err := io.ReadFull(stream, ack); err != nil || ack[0] != 0x01 {
+		resp := http.Response{
+			StatusCode: 502, // Bad Gateway
+			ProtoMajor: 1,
+			ProtoMinor: 1,
+		}
+		resp.Write(conn)
+		return
+	}
 
     // 4. Handle Protocol Specifics
     if req.Method == "CONNECT" {

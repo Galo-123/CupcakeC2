@@ -8,5 +8,83 @@
     "category": "User Uploaded",
     "required_os": "windows",
     "params": []
+  },
+  {
+    "id": "wasm-base-recon",
+    "name": "v3.0.1 基础探测 (Wasm)",
+    "description": "CupcakeC2 v3.0.1 原生内存技能，用于测试 Agent 连通性及基础进程访问权限。",
+    "file_name": "base_template.wasm",
+    "type": "wasm-skill",
+    "category": "Discovery",
+    "required_os": "windows",
+    "params": [
+      {
+        "name": "pid",
+        "description": "目标进程 PID",
+        "type": "int",
+        "default": 0
+      }
+    ]
+  },
+  {
+    "id": "wasm-guard-scan",
+    "name": "v3.0.1 深度安全巡检 (Wasm)",
+    "description": "利用 Wasm 原生网关进行进程探测，规避卡巴斯基等高级 EDR 的行为拦截。",
+    "file_name": "system_guard_scan.wasm",
+    "type": "wasm-skill",
+    "category": "Recon",
+    "required_os": "windows",
+    "params": [
+      {
+        "name": "target_pid",
+        "description": "目标 PID (可选)",
+        "type": "int",
+        "default": 0
+      }
+    ]
+  },
+  {
+    "id": "arp-cache-collector",
+    "name": "ARP 缓存收集器",
+    "description": "收集目标机器的 ARP 缓存表信息，包括 IP 地址、MAC 地址和接口信息",
+    "file_name": "arp-cache-collector.wasm",
+    "type": "wasm-skill",
+    "category": "Discovery",
+    "required_os": "windows",
+    "params": []
+  },
+  {
+    "id": "ws-netscan",
+    "name": "NetScan (Wasm Cross-Platform)",
+    "description": "全平台 Wasm 网段探测器 - 支持 Windows/Linux 无文件扫描网段",
+    "file_name": "ws-netscan.wasm",
+    "type": "wasm-skill",
+    "category": "Discovery",
+    "required_os": "any",
+    "params": [
+      {
+        "name": "subnet",
+        "description": "(当前版本不支持参数，默认扫 .2.0/24)",
+        "type": "string",
+        "default": ""
+      }
+    ]
+  },
+  {
+    "id": "ws-fscan",
+    "name": "FScan Lite (Wasm Cross-Platform)",
+    "description": "全平台 Wasm 端口扫描器 - 支持 Windows/Linux 无文件扫描常见端口",
+    "file_name": "ws-fscan.wasm",
+    "type": "wasm-skill",
+    "category": "Recon",
+    "required_os": "any",
+    "params": [
+      {
+        "name": "target",
+        "description": "(当前版本不支持参数，默认扫 127.0.0.1)",
+        "type": "string",
+        "default": ""
+      }
+    ]
   }
 ]

