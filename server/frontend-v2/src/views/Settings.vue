@@ -126,7 +126,7 @@
           <div class="tab-content narrow-content">
             <h3>回连策略</h3>
             <el-form label-position="left" label-width="150px">
-              <el-form-item label="默认心跳 (s)">
+              <el-form-item label="默认心跳">
                 <el-input-number v-model="globalConfig.default_sleep" :min="1" />
                 <div class="form-tip">新生成的 Payload 默认使用的心跳间隔。</div>
               </el-form-item>
@@ -166,7 +166,7 @@
                   </template>
                 </el-input>
                 <div class="form-tip">
-                  用于自动化脚本 (MCP) 远程调用 API 的唯一凭证。
+                  用于自动化脚本 远程调用 API 的唯一凭证。
                   <el-button link type="primary" size="small" @click="regenerateToken">重置令牌</el-button>
                 </div>
               </el-form-item>
@@ -179,7 +179,7 @@
                   active-text="开启"
                   inactive-text="关闭"
                 />
-                <div class="form-tip">关闭后，所有外部自动化脚本 (MCP) 将无法通过 Token 访问 API。</div>
+                <div class="form-tip">关闭后，所有外部自动化脚本 将无法通过 Token 访问 API。</div>
               </el-form-item>
 
               <el-form-item label="IP 白名单">

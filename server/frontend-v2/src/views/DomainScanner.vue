@@ -5,7 +5,7 @@
         <div class="card-header">
           <div class="header-left">
             <el-icon class="header-icon"><Collection /></el-icon>
-            <span class="header-title">全局插件管理 (Payload Arsenal)</span>
+            <span class="header-title">全局插件管理</span>
           </div>
           <div class="header-right">
             <el-input
@@ -91,8 +91,8 @@
 
         <el-form-item label="下发执行方式" required>
           <el-select v-model="uploadForm.type" class="w-full" @change="onTypeChange">
-            <el-option label="C# .NET 反射执行 (execute-assembly)" value="execute-assembly" />
-            <el-option label="Linux 内存执行 (memfd-exec)" value="memfd-exec" />
+            <el-option label="C# .NET 反射执行" value="execute-assembly" />
+            <el-option label="Linux 内存执行" value="memfd-exec" />
             <el-option label="Windows 傀儡进程 / Fork & Run (hollow-shellcode)" value="shellcode-inject" />
             <el-option label="原生可执行文件直接运行" value="native-exec" />
           </el-select>
@@ -100,11 +100,11 @@
 
         <el-form-item label="功能分类">
           <el-select v-model="uploadForm.category" class="w-full">
-            <el-option label="凭据窃取 (Credentials)" value="credentials" />
-            <el-option label="内网横向 (Lateral)" value="lateral" />
-            <el-option label="环境探测 (Enum)" value="enum" />
-            <el-option label="提权工具 (Privesc)" value="privesc" />
-            <el-option label="其他 (General)" value="general" />
+            <el-option label="凭据窃取" value="credentials" />
+            <el-option label="内网横向" value="lateral" />
+            <el-option label="环境探测" value="enum" />
+            <el-option label="提权工具" value="privesc" />
+            <el-option label="其他" value="general" />
           </el-select>
         </el-form-item>
 
@@ -240,10 +240,10 @@ const getTypeTag = (type) => {
 
 const translateType = (type) => {
   const map = {
-    'execute-assembly': 'C# 内存加载 (ExecuteAssembly)',
-    'memfd-exec': 'Linux 内存执行 (Memfd)',
+    'execute-assembly': 'C# 内存加载',
+    'memfd-exec': 'Linux 内存执行',
     'shellcode-inject': '傀儡进程注入 (Fork & Run)',
-    'native-exec': '原生可执行运行 (Native)'
+    'native-exec': '原生可执行运行'
   }
   return map[type] || type
 }

@@ -95,7 +95,7 @@
     <!-- Run Options Dialog -->
     <el-dialog v-model="runDialog.visible" title="运行插件配置" width="500px">
       <el-form label-position="top">
-        <el-form-item label="命令行参数 (Arguments)">
+        <el-form-item label="命令行参数">
           <el-input 
             v-model="runDialog.args" 
             type="textarea" 

@@ -50,7 +50,7 @@
             </template>
           </el-table-column>
 
-        <el-table-column prop="name" label="名称 (Name)" min-width="300" sortable show-overflow-tooltip>
+        <el-table-column prop="name" label="名称" min-width="300" sortable show-overflow-tooltip>
           <template #default="scope">
             <span style="font-weight: 500;">{{ scope.row.name }}</span>
           </template>
@@ -76,7 +76,7 @@
                 </div>
                 <template #dropdown>
                   <el-dropdown-menu>
-                    <el-dropdown-item v-if="!scope.row.is_dir" command="preview" :icon="View">预览 (Preview)</el-dropdown-item>
+                    <el-dropdown-item v-if="!scope.row.is_dir" command="preview" :icon="View">预览</el-dropdown-item>
                     <el-dropdown-item v-if="!scope.row.is_dir" command="download" :icon="Download">下载</el-dropdown-item>
                     <el-dropdown-item command="delete" :icon="Delete" style="color: #F56C6C;">删除</el-dropdown-item>
                   </el-dropdown-menu>
@@ -92,7 +92,7 @@
             <el-icon><Upload /></el-icon> 上传文件到当前目录
           </div>
           <div class="menu-item" @click="refresh">
-            <el-icon><Refresh /></el-icon> 刷新 (Refresh)
+            <el-icon><Refresh /></el-icon> 刷新
           </div>
         </div>
       </div>
@@ -106,7 +106,7 @@
     <input type="file" ref="fileInputRef" style="display: none" @change="processUpload" />
 
     <!-- File Preview Dialog -->
-    <el-dialog v-model="previewVisible" title="文件预览 (Preview - Max 50KB)" width="60%" destroy-on-close>
+    <el-dialog v-model="previewVisible" title="文件预览" width="60%" destroy-on-close>
       <pre class="code-preview">{{ previewContent }}</pre>
       <template #footer>
         <el-button @click="previewVisible = false">关闭</el-button>

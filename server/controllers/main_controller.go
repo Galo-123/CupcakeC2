@@ -38,9 +38,11 @@ func GetDashboard(c *gin.Context) {
 		return true
 	})
 
-	templatesReady := true
-	if _, err := os.Stat("assets/client_template_windows.exe"); os.IsNotExist(err) { templatesReady = false }
-	if _, err := os.Stat("assets/client_template_linux"); os.IsNotExist(err) && templatesReady { templatesReady = false }
+	// 检测模板就绪情况：只要存在 Windows 或 Linux 其中任一核心模板即认为可用
+	winReady := false
+	linReady := false
+	if _, err := os.Stat("assets/client_template_windows.exe"); err == nil { winReady = true }
+	if _, err := os.Stat("assets/client_template_linux"); err == nil { linReady = true }
 
 	c.JSON(http.StatusOK, gin.H{
 		"cpu_usage":       fmt.Sprintf("%.1f", cpuPerc),
@@ -52,7 +54,9 @@ func GetDashboard(c *gin.Context) {
 		"online_count":    onlineCount,
 		"hostname":        hInfo.Hostname,
 		"os":              hInfo.OS,
-		"templates_ready": templatesReady,
+		"templates_ready": winReady && linReady,
+		"win_template":    winReady,
+		"lin_template":    linReady,
 	})
 }
 

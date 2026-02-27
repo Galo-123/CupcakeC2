@@ -3,9 +3,9 @@
     <el-card shadow="never">
       <template #header>
         <div class="card-header">
-          <span>在线终端列表 (V2)</span>
+          <span>在线终端列表</span>
           <div class="header-actions">
-            <el-button type="success" :icon="Plus" @click="openConnectDialog">正向连接 (Bind)</el-button>
+            <el-button type="success" :icon="Plus" @click="openConnectDialog">正向连接</el-button>
             <el-button type="primary" :icon="Refresh" circle @click="fetchClients" :loading="loading" />
           </div>
         </div>
@@ -89,14 +89,14 @@
 
     <!-- Quick Start Tunnel Dialog -->
     <el-dialog 
-      title="启动网络隧道 (Network Tunnel)" 
+      title="启动网络隧道" 
       v-model="tunnelDialogVisible" 
       width="480px" 
       destroy-on-close
       center
     >
       <el-form label-position="top">
-        <el-form-item label="服务监听端口 (VPS Port)">
+        <el-form-item label="服务监听端口">
           <el-input-number 
             v-model="tunnelForm.port" 
             :min="1" 
@@ -106,7 +106,7 @@
           />
         </el-form-item>
 
-        <el-form-item label="隧道协议 (Protocol)">
+        <el-form-item label="隧道协议">
           <el-radio-group v-model="tunnelForm.type" style="width: 100%; display: flex;">
             <el-radio-button label="socks5" style="flex: 1; text-align: center;">SOCKS5</el-radio-button>
             <el-radio-button label="http" style="flex: 1; text-align: center;">HTTP</el-radio-button>
@@ -115,14 +115,14 @@
 
         <el-divider content-position="center">
           <el-icon style="vertical-align: middle; margin-right: 5px;"><Lock /></el-icon>
-          安全设置 (Security)
+          安全设置
         </el-divider>
 
-        <el-form-item label="身份验证 (Authentication)">
+        <el-form-item label="身份验证">
           <el-switch 
             v-model="tunnelForm.enableAuth" 
-            active-text="启用账号密码 (Enable)" 
-            inactive-text="无认证 (Public)"
+            active-text="启用账号密码" 
+            inactive-text="无认证"
             style="--el-switch-on-color: #13ce66;"
           />
         </el-form-item>
@@ -131,7 +131,7 @@
           <div v-if="tunnelForm.enableAuth" class="auth-box">
             <el-row :gutter="15">
               <el-col :span="12">
-                <el-form-item label="用户名 (Username)">
+                <el-form-item label="用户名">
                   <el-input 
                     v-model="tunnelForm.username" 
                     placeholder="例如: admin" 
@@ -140,7 +140,7 @@
                 </el-form-item>
               </el-col>
               <el-col :span="12">
-                <el-form-item label="密码 (Password)">
+                <el-form-item label="密码">
                   <el-input 
                     v-model="tunnelForm.password" 
                     type="password" 
@@ -180,7 +180,7 @@
         style="margin-bottom: 20px;"
       />
       <el-form label-position="top">
-        <el-form-item label="目标进程名 (Target Process)">
+        <el-form-item label="目标进程名">
           <el-input v-model="migrateProcess" placeholder="例如: explorer.exe" />
         </el-form-item>
       </el-form>
@@ -191,17 +191,17 @@
     </el-dialog>
 
     <!-- Connect to Bind Agent Dialog -->
-    <el-dialog title="正向连接受控端 (Connect to Bind Agent)" v-model="connectDialogVisible" width="450px" center>
+    <el-dialog title="正向连接受控端" v-model="connectDialogVisible" width="450px" center>
       <el-form label-position="top">
-        <el-form-item label="目标受控端地址 (IP:Port)" required>
+        <el-form-item label="目标受控端地址" required>
           <el-input v-model="connectForm.target_addr" placeholder="例如: 192.168.1.10:4444" />
         </el-form-item>
-        <el-form-item label="关联配置监听器 (Config Context)" required>
+        <el-form-item label="关联配置监听器" required>
           <el-select v-model="connectForm.listener_id" placeholder="选择用于提供加密密钥的监听器" style="width: 100%">
             <el-option 
-              v-for="l in listeners" 
+              v-for="l in listeners.filter(i => i.protocol === '正向TCP' || i.protocol === 'Bind-TCP')" 
               :key="l.id" 
-              :label="`${l.protocol} - :${l.port} (${l.id})`"
+              :label="`${l.protocol} - :${l.port}`"
               :value="l.id"
             />
           </el-select>
@@ -421,7 +421,7 @@ const handleStartProxy = async () => {
       password: tunnelForm.enableAuth ? tunnelForm.password : ""
     })
     
-    ElMessage.success('隧道启动成功 (Tunnel Started)')
+    ElMessage.success('隧道启动成功')
     tunnelDialogVisible.value = false
   } catch (error) {
     const msg = error.response?.data?.message || '启动尝试失败'

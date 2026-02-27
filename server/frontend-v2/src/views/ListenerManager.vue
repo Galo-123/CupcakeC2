@@ -78,7 +78,7 @@
       </el-table>
     </el-card>
 
-    <el-dialog v-model="stagerVisible" title="一键上线 (One-Click Online)" width="600px">
+    <el-dialog v-model="stagerVisible" title="一键上线" width="600px">
       <div style="margin-bottom: 20px;">
         <el-radio-group v-model="stagerPlatform" size="small" @change="fetchStager">
           <el-radio-button label="windows">Windows (PowerShell)</el-radio-button>
@@ -117,14 +117,15 @@
 
         <!-- Step 2: Global Configuration -->
         <el-divider content-position="left"><el-icon><Setting /></el-icon> 基础设置</el-divider>
-        <el-form-item label="监听地址" required>
-          <el-input v-model="listenAddr" placeholder="0.0.0.0:8080" />
-          <div class="tip">格式 IP:Port (例如 :80 或 0.0.0.0:443)</div>
+        <el-form-item :label="form.protocol === '正向TCP' ? '监听端口' : '监听地址'" required>
+          <el-input v-model="listenAddr" :placeholder="form.protocol === '正向TCP' ? '4444' : '0.0.0.0:8080'" />
+          <div class="tip" v-if="form.protocol === '正向TCP'">请直接输入受控端需要监听的端口（例如：4444）。</div>
+          <div class="tip" v-else>格式 IP:Port (例如 :80 或 0.0.0.0:443)</div>
         </el-form-item>
         <el-form-item label="备注/别名">
-          <el-input v-model="form.note" placeholder="例如：北美中转节点-01" />
+          <el-input v-model="form.note" placeholder="选填，给监听器起个名字" />
         </el-form-item>
-        <el-form-item label="Public Host">
+        <el-form-item label="Public Host" v-if="form.protocol !== '正向TCP'">
           <el-input v-model="form.public_host" placeholder="例如：c2.example.com" />
           <div class="tip">Agent 迁移或重连时优先使用该地址。</div>
         </el-form-item>
@@ -154,7 +155,7 @@
 
         <el-row :gutter="20" v-if="form.heartbeat_mode === 'custom'">
           <el-col :span="12">
-            <el-form-item label="心跳间隔 (s)">
+            <el-form-item label="心跳间隔">
               <el-input-number v-model="form.heartbeat_interval" :min="1" style="width: 100%" />
             </el-form-item>
           </el-col>
@@ -281,8 +282,10 @@ const handleProtocolChange = (val) => {
     listenAddr.value = '0.0.0.0:53'
   } else if (val === 'WebSocket') {
     listenAddr.value = '0.0.0.0:8081'
-  } else if (val === 'TCP' || val === '正向TCP') {
+  } else if (val === 'TCP') {
     listenAddr.value = '0.0.0.0:8888'
+  } else if (val === '正向TCP') {
+    listenAddr.value = '4444'
   }
 }
 
@@ -330,7 +333,7 @@ const createListener = async () => {
     return
   }
   if (!form.encrypt_key) {
-    ElMessage.warning('必须设置通讯密钥 (Vkey)')
+    ElMessage.warning('必须设置通讯密钥')
     generateKey()
     return
   }

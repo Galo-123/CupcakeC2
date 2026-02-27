@@ -98,7 +98,7 @@ func main() {
 			files.GET("/read", controllers.ReadFileController)
 			files.POST("/delete", controllers.DeleteFilesController)
 			files.POST("/upload", controllers.Upload)
-			files.POST("/download", controllers.HandleFsDownload)
+			files.GET("/download", controllers.HandleFsDownload)
 		}
 
 		processes := api.Group("/processes")

@@ -5,7 +5,7 @@
         <div class="card-header">
           <span>
              <el-icon style="vertical-align: middle; margin-right: 5px;"><Connection /></el-icon>
-             内网隧道 (Client Tunnels)
+             内网隧道
           </span>
           <div>
               <el-button :icon="Refresh" circle @click="fetchTunnels" style="margin-right: 10px"/>
@@ -31,7 +31,7 @@
 
         <el-table-column label="转发目标" min-width="200">
           <template #default>
-            <span style="color: #606266;">动态转发 (Dynamic)</span>
+            <span style="color: #606266;">动态转发</span>
           </template>
         </el-table-column>
 
@@ -56,7 +56,7 @@
 
     <!-- Create/Edit Tunnel Dialog -->
     <el-dialog 
-      :title="isEdit ? '编辑网络隧道' : '新建网络隧道 (Network Tunnel)'" 
+      :title="isEdit ? '编辑网络隧道' : '新建网络隧道'" 
       v-model="dialogVisible" 
       width="480px" 
       destroy-on-close
@@ -68,12 +68,12 @@
         type="info"
         :closable="false"
         show-icon
-        description="在服务端 (VPS) 启动一个监听端口，将流量透明转发至该终端所在的内网环境。适用于内网渗透、扫描等场景。"
+        description="在服务端 启动一个监听端口，将流量透明转发至该终端所在的内网环境。适用于内网渗透、扫描等场景。"
         style="margin-bottom: 20px;"
       />
 
       <el-form label-position="top">
-        <el-form-item label="服务端监听端口 (VPS Port)">
+        <el-form-item label="服务端监听端口">
           <el-input-number 
             v-model="form.port" 
             :min="1" 
@@ -84,7 +84,7 @@
           />
         </el-form-item>
 
-        <el-form-item label="隧道协议 (Protocol)">
+        <el-form-item label="隧道协议">
           <el-radio-group v-model="form.type" style="width: 100%; display: flex;">
             <el-radio-button label="socks5" style="flex: 1; text-align: center;">
               SOCKS5
@@ -97,14 +97,14 @@
 
         <el-divider content-position="center">
           <el-icon style="vertical-align: middle; margin-right: 5px;"><Lock /></el-icon>
-          安全设置 (Security)
+          安全设置
         </el-divider>
 
-        <el-form-item label="身份验证 (Authentication)">
+        <el-form-item label="身份验证">
           <el-switch 
             v-model="form.enableAuth" 
-            active-text="启用账号密码 (Enable)" 
-            inactive-text="无认证 (Public)"
+            active-text="启用账号密码" 
+            inactive-text="无认证"
             style="--el-switch-on-color: #13ce66;"
           />
         </el-form-item>
@@ -113,7 +113,7 @@
           <div v-if="form.enableAuth" class="auth-box">
             <el-row :gutter="15">
               <el-col :span="12">
-                <el-form-item label="用户名 (Username)">
+                <el-form-item label="用户名">
                   <el-input 
                     v-model="form.username" 
                     placeholder="例如: admin" 
@@ -122,7 +122,7 @@
                 </el-form-item>
               </el-col>
               <el-col :span="12">
-                <el-form-item label="密码 (Password)">
+                <el-form-item label="密码">
                   <el-input 
                     v-model="form.password" 
                     type="password" 

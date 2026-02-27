@@ -312,12 +312,12 @@ pub fn get_dns_resolver() -> Option<String> {
 /// 获取加密盐 (32 字节)
 pub fn get_encryption_salt() -> Vec<u8> {
     // 1. 源码静态替换
-    if ENCRYPTION_SALT != "REPLACE_ME_SALT" && !ENCRYPTION_SALT.is_empty() {
+    if ENCRYPTION_SALT != "REPLACE_ME_SALT" {
         let salt_clean = ENCRYPTION_SALT.trim().trim_matches('\0').trim_matches(char::from(0));
-        if !salt_clean.is_empty() {
-            debug!("[+] Using statically replaced Salt: {}", salt_clean);
-            return salt_clean.as_bytes().to_vec();
-        }
+        debug!("[+] Using statically replaced Salt: {}", salt_clean);
+        let mut salt_vec = salt_clean.as_bytes().to_vec();
+        salt_vec.resize(32, 0);
+        return salt_vec;
     }
 
     // 2. 二进制动态修补
@@ -326,7 +326,9 @@ pub fn get_encryption_salt() -> Vec<u8> {
         debug!("[+] Using dynamically patched Salt (32 bytes)");
         return ENCRYPTION_SALT_TEMPLATE.to_vec();
     }
-    Vec::new()
+    
+    // 默认回退 32 字节零，使其在 DeriveKey 期间行为与服务端的 `make([]byte, 32)` 一致
+    vec![0u8; 32]
 }
 
 pub fn get_packet_obfuscation_mode() -> String {

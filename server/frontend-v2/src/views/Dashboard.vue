@@ -38,7 +38,7 @@
             <el-icon class="mr-2"><Platform /></el-icon>
             <h3>核心中继器状态</h3>
           </div>
-          <el-tag type="success" size="small" class="pulse-tag">OPERATIONAL</el-tag>
+          <el-tag type="success" size="small" class="pulse-tag">运行中</el-tag>
         </div>
         
         <div class="server-info-grid">
@@ -105,7 +105,7 @@
 
           <div class="gauge-item">
             <div class="gauge-label">
-              <span>磁盘 I/O</span>
+              <span>磁盘空间</span>
               <span class="percent">{{ stats.disk_usage }}%</span>
             </div>
             <div class="gauge-track">

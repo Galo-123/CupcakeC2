@@ -3,6 +3,7 @@ package controllers
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 
@@ -204,22 +205,60 @@ func SendCommand(c *gin.Context) {
 
 func HandleConnectBindAgent(c *gin.Context) {
 	var req struct {
-		TargetAddr string `json:"target_addr"`
-		ListenerID string `json:"listener_id"`
+		TargetAddr     string `json:"target_addr"`
+		AesKey         string `json:"aes_key"`          // 直接指定密钥（优先）
+		EncryptionSalt string `json:"encryption_salt"`  // 可选盐值
+		ListenerID     string `json:"listener_id"`      // 可选：从已有监听器借用密钥
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
 		return
 	}
-
-	val, ok := globals.Listeners.Load(req.ListenerID)
-	if !ok {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Listener not found"})
+	if req.TargetAddr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "target_addr is required"})
 		return
 	}
-	ln := val.(*globals.Listener)
 
-	if err := services.ConnectToBindAgent(req.TargetAddr, ln); err != nil {
+	// 构造一个临时 Listener 结构仅用于传递密钥配置
+	// 优先使用直传密钥，其次从已有监听器借用
+	fakeLn := &globals.Listener{
+		EncryptMode:    "aes",
+		EncryptKey:     req.AesKey,
+		EncryptionSalt: req.EncryptionSalt,
+		ObfuscateMode:  "none",
+	}
+
+	if req.AesKey == "" {
+		// 没有直传密钥 → 从监听器借用
+		if req.ListenerID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "aes_key or listener_id is required"})
+			return
+		}
+		val, ok := globals.Listeners.Load(req.ListenerID)
+		if !ok {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Listener not found or offline"})
+			return
+		}
+		ln := val.(*globals.Listener)
+		fakeLn.EncryptKey     = ln.EncryptKey
+		fakeLn.EncryptionSalt = ln.EncryptionSalt
+		fakeLn.ObfuscateMode  = ln.ObfuscateMode
+	}
+
+	target := req.TargetAddr
+	if !strings.Contains(target, ":") {
+		// 如果没有冒号，说明缺少端口，尝试从监听器里获取默认端口
+		if req.ListenerID != "" {
+			val, ok := globals.Listeners.Load(req.ListenerID)
+			if ok {
+				pLn := val.(*globals.Listener)
+				target = fmt.Sprintf("%s:%d", target, pLn.Port)
+			}
+		}
+	}
+
+	if err := services.ConnectToBindAgent(target, fakeLn); err != nil {
+		log.Printf("[TCP] Final target address: %s", target)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

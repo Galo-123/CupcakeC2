@@ -72,7 +72,7 @@ func AuthMiddleware() gin.HandlerFunc {
 		// 3. Token 提取 (支持 Header 和 Query)
 		authHeader := c.GetHeader("Authorization")
 		token := ""
-		if authHeader != "" {
+		if strings.HasPrefix(authHeader, "Bearer ") {
 			token = strings.TrimPrefix(authHeader, "Bearer ")
 		} else {
 			token = c.Query("token")

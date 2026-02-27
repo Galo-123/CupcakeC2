@@ -84,6 +84,7 @@ install_dependencies() {
                 sudo apt-get install -y build-essential gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 \
                     gcc-mingw-w64-i686 g++-mingw-w64-i686 \
                     gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+                    musl-tools musl-dev \
                     wget curl git pkg-config libssl-dev perl make unzip
                 ;;
             centos|fedora|rhel)

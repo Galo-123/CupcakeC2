@@ -22,7 +22,7 @@
 
       <div class="right-tools">
         <el-button-group>
-          <el-button :icon="Refresh" @click="fetchProcesses" :loading="loading">刷新列表 (Refresh)</el-button>
+          <el-button :icon="Refresh" @click="fetchProcesses" :loading="loading">刷新列表</el-button>
         </el-button-group>
       </div>
     </div>
@@ -43,7 +43,7 @@
       >
         <el-table-column prop="pid" label="PID" width="90" sortable fixed />
         
-        <el-table-column prop="name" label="映像名称 (Image Name)" min-width="250" sortable>
+        <el-table-column prop="name" label="映像名称" min-width="250" sortable>
           <template #default="scope">
             <div class="name-cell">
               <img :src="getProcessIcon(scope.row.name)" class="proc-mini-icon" />
@@ -125,7 +125,7 @@
         {{ contextMenu.targetRow.name }} ({{ contextMenu.targetRow.pid }})
       </div>
       <div class="menu-item" @click="fetchProcesses">
-        <el-icon><Refresh /></el-icon> 刷新列表 (Refresh)
+        <el-icon><Refresh /></el-icon> 刷新列表
       </div>
       <el-divider style="margin: 4px 0" />
       <div 
@@ -133,7 +133,7 @@
         class="menu-item danger" 
         @click="handleKill(contextMenu.targetRow)"
       >
-        <el-icon><CircleClose /></el-icon> 强制结束任务 (Kill Task)
+        <el-icon><CircleClose /></el-icon> 强制结束任务
       </div>
       <div 
         v-if="contextMenu.targetRow" 

@@ -28,6 +28,34 @@ if ! command -v cargo &> /dev/null; then
     exit 1
 fi
 
+# 1.1 检测并安装 musl 工具链（Linux-musl 编译必须）
+echo -e "${YELLOW}[*] 正在检查 musl 工具链...${NC}"
+if ! command -v musl-gcc &> /dev/null && ! command -v x86_64-linux-musl-gcc &> /dev/null; then
+    echo -e "${YELLOW}[*] 未检测到 musl-gcc，正在自动安装 musl-tools 和 musl-dev...${NC}"
+    if [ -f /etc/debian_version ] || grep -qi 'ubuntu\|debian\|kali' /etc/os-release 2>/dev/null; then
+        sudo apt-get update -y
+        sudo apt-get install -y musl-tools musl-dev
+        echo -e "${GREEN}[+] musl-tools 安装完成。${NC}"
+    elif grep -qi 'centos\|fedora\|rhel' /etc/os-release 2>/dev/null; then
+        sudo yum install -y musl musl-devel musl-gcc
+        echo -e "${GREEN}[+] musl-tools 安装完成。${NC}"
+    else
+        echo -e "${RED}[!] 无法识别操作系统，请手动安装 musl-tools：sudo apt-get install musl-tools musl-dev${NC}"
+        exit 1
+    fi
+else
+    echo -e "${GREEN}[+] musl 工具链已就绪。${NC}"
+fi
+
+# 1.2 为 arm64 musl 安装交叉编译工具链（可选，仅在需要时安装）
+if ! command -v aarch64-linux-musl-gcc &> /dev/null; then
+    echo -e "${YELLOW}[*] 未检测到 aarch64 musl 交叉编译器，尝试安装...${NC}"
+    if [ -f /etc/debian_version ] || grep -qi 'ubuntu\|debian\|kali' /etc/os-release 2>/dev/null; then
+        sudo apt-get install -y gcc-aarch64-linux-gnu &>/dev/null || true
+        echo -e "${GREEN}[+] arm64 交叉编译器（gnu）已就绪（将用作 arm64-musl 回退方案）。${NC}"
+    fi
+fi
+
 # 2. 准备输出目录
 mkdir -p "$ASSETS_DIR"
 
@@ -43,9 +71,10 @@ build_linux_template() {
     if [ "$arch" == "x64" ]; then
         target="x86_64-unknown-linux-musl"
     elif [ "$arch" == "arm64" ]; then
-        target="aarch64-unknown-linux-musl"
-        # 针对 ARM64 的交叉编译检查 (如果需要)
-        # 这里默认假设用户已经配置好 musl 链，或者环境支持
+        # 注意: aarch64-linux-musl-gcc 在标准 apt 中不可用
+        # 使用 aarch64-unknown-linux-gnu 替代，对应的 gcc-aarch64-linux-gnu 可直接安装
+        target="aarch64-unknown-linux-gnu"
+        export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
     fi
 
     # 尝试安装 target

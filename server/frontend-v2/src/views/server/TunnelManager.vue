@@ -97,7 +97,7 @@
       center
     >
       <el-form label-position="top">
-        <el-form-item label="监听端口 (VPS Port)">
+        <el-form-item label="监听端口">
           <el-input-number 
             v-model="editForm.port" 
             :min="1" 
@@ -107,7 +107,7 @@
           />
         </el-form-item>
 
-        <el-form-item label="隧道协议 (Protocol)">
+        <el-form-item label="隧道协议">
           <el-radio-group v-model="editForm.type" style="width: 100%; display: flex;">
             <el-radio-button label="socks5" style="flex: 1; text-align: center;">SOCKS5</el-radio-button>
             <el-radio-button label="http" style="flex: 1; text-align: center;">HTTP</el-radio-button>
@@ -116,10 +116,10 @@
 
         <el-divider content-position="center">
           <el-icon style="vertical-align: middle; margin-right: 5px;"><Lock /></el-icon>
-          安全设置 (Security)
+          安全设置
         </el-divider>
 
-        <el-form-item label="身份验证 (Authentication)">
+        <el-form-item label="身份验证">
           <el-switch 
             v-model="editForm.enableAuth" 
             active-text="启用账号密码" 

