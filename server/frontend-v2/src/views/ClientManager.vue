@@ -4,7 +4,10 @@
       <template #header>
         <div class="card-header">
           <span>在线终端列表 (V2)</span>
-          <el-button type="primary" :icon="Refresh" circle @click="fetchClients" :loading="loading" />
+          <div class="header-actions">
+            <el-button type="success" :icon="Plus" @click="openConnectDialog">正向连接 (Bind)</el-button>
+            <el-button type="primary" :icon="Refresh" circle @click="fetchClients" :loading="loading" />
+          </div>
         </div>
       </template>
 
@@ -187,6 +190,32 @@
       </template>
     </el-dialog>
 
+    <!-- Connect to Bind Agent Dialog -->
+    <el-dialog title="正向连接受控端 (Connect to Bind Agent)" v-model="connectDialogVisible" width="450px" center>
+      <el-form label-position="top">
+        <el-form-item label="目标受控端地址 (IP:Port)" required>
+          <el-input v-model="connectForm.target_addr" placeholder="例如: 192.168.1.10:4444" />
+        </el-form-item>
+        <el-form-item label="关联配置监听器 (Config Context)" required>
+          <el-select v-model="connectForm.listener_id" placeholder="选择用于提供加密密钥的监听器" style="width: 100%">
+            <el-option 
+              v-for="l in listeners" 
+              :key="l.id" 
+              :label="`${l.protocol} - :${l.port} (${l.id})`"
+              :value="l.id"
+            />
+          </el-select>
+          <div class="form-hint" style="font-size: 12px; color: #999; margin-top: 5px;">
+            系统将使用选定监听器的加密密钥与盐值进行通信握手。
+          </div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="connectDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="connecting" @click="handleConnect">发起连接</el-button>
+      </template>
+    </el-dialog>
+
     <!-- Context Menu -->
     <div v-if="contextMenu.visible" :style="contextMenuStyle" class="custom-context-menu">
       <div 
@@ -219,7 +248,7 @@
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, ElLoading } from 'element-plus'
-import { Refresh, Monitor, Delete, ArrowDown, Connection, Lock, User, Key, Promotion } from '@element-plus/icons-vue'
+import { Refresh, Monitor, Delete, ArrowDown, Connection, Lock, User, Key, Promotion, Plus } from '@element-plus/icons-vue'
 import api, { deleteClient } from '../api/index'
 import { startTunnel } from '../api/socks'
 
@@ -251,6 +280,15 @@ const contextMenu = reactive({
   x: 0,
   y: 0,
   row: null
+})
+
+// Connect State
+const connectDialogVisible = ref(false)
+const connecting = ref(false)
+const listeners = ref([])
+const connectForm = reactive({
+  target_addr: '',
+  listener_id: ''
 })
 
 const contextMenuStyle = computed(() => ({
@@ -286,6 +324,37 @@ const handleCommand = (command, row) => {
     case 'delete':
       handleDelete()
       break
+  }
+}
+
+const openConnectDialog = async () => {
+  connectDialogVisible.value = true
+  try {
+    const res = await api.get('/api/listeners')
+    listeners.value = res.data
+    if (listeners.value.length > 0) {
+      connectForm.listener_id = listeners.value[0].id
+    }
+  } catch (e) {
+    ElMessage.error('无法获取监听器配置')
+  }
+}
+
+const handleConnect = async () => {
+  if (!connectForm.target_addr || !connectForm.listener_id) {
+    ElMessage.warning('请填写完整的目标地址和监听器配置')
+    return
+  }
+  connecting.value = true
+  try {
+    await api.post('/api/agents/connect', connectForm)
+    ElMessage.success('连接指令已下发，请关注上线列表')
+    connectDialogVisible.value = false
+    setTimeout(fetchClients, 2000)
+  } catch (e) {
+    ElMessage.error('连接失败: ' + (e.response?.data?.error || e.message))
+  } finally {
+    connecting.value = false
   }
 }
 

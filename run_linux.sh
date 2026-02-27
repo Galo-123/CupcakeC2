@@ -250,4 +250,6 @@ echo -e "${GREEN}[+ ] 环境初始化完成，准备启动程序...${NC}"
 echo -e "${GREEN}[+ ] 控制终端: http://127.0.0.1:9999 ${NC}"
 
 cd server
-go run .
+echo -e "${YELLOW}[*] 正在以生产模式编译服务端 (Hardened Build)...${NC}"
+go build -ldflags="-s -w" -trimpath -o cupcake-server .
+./cupcake-server

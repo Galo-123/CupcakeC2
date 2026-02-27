@@ -27,19 +27,21 @@ func ProcessWebSocket(conn *websocket.Conn, remoteAddr string, ln *globals.Liste
 	defer func() {
 		close(done)
 		if clientUUID != "" {
-			globals.Clients.Delete(clientUUID)
-			globals.PTYState.Delete(clientUUID)
-			store.UpdateAgentStatus(clientUUID, "offline")
-			log.Printf("Agent Off: %s", clientUUID)
-			
-			// Notify Offline
-			if client != nil {
-				NotifyAgentOffline(client.UUID, client.Hostname)
-			}
-
-			if client != nil {
-				if client.OutputChannel != nil {
-					close(client.OutputChannel)
+			if val, ok := globals.Clients.Load(clientUUID); ok {
+				existingClient := val.(*globals.Client)
+				if existingClient == client {
+					globals.Clients.Delete(clientUUID)
+					globals.PTYState.Delete(clientUUID)
+					store.UpdateAgentStatus(clientUUID, "offline")
+					log.Printf("Agent Off: %s", clientUUID)
+					
+					// Notify Offline
+					if client != nil {
+						NotifyAgentOffline(client.UUID, client.Hostname)
+						if client.OutputChannel != nil {
+							close(client.OutputChannel)
+						}
+					}
 				}
 			}
 		}
@@ -83,8 +85,14 @@ func ProcessWebSocket(conn *websocket.Conn, remoteAddr string, ln *globals.Liste
 		}()
 	}
 
+	// 🛡️ Anti-DoS: Limit max WebSocket frame size to 50MB to prevent OOM
+	conn.SetReadLimit(50 * 1024 * 1024)
+
 	// --- Read Loop ---
 	for {
+		// 🛡️ Anti-Slowloris: Set a read deadline (e.g., 60 seconds per message)
+		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		
 		messageType, message, err := conn.ReadMessage()
 		if err != nil {
 			break
@@ -140,9 +148,11 @@ func ProcessWebSocket(conn *websocket.Conn, remoteAddr string, ln *globals.Liste
 
 		switch msg.MsgType {
 		case "register":
-			pData, _ := json.Marshal(msg.Payload)
-			var p map[string]interface{}
-			json.Unmarshal(pData, &p)
+			p, ok := msg.Payload.(map[string]interface{})
+			if !ok {
+				log.Printf("Invalid register payload format from %s", remoteAddr)
+				continue
+			}
 			
 			id, _ := p["uuid"].(string)
 			hostname, _ := p["hostname"].(string)
@@ -200,27 +210,24 @@ func ProcessWebSocket(conn *websocket.Conn, remoteAddr string, ln *globals.Liste
 			startWriteLoop(client)
 
 		case "response":
-			// Protocol Adapter: Parse Payload as ResponsePayload
-			pData, _ := json.Marshal(msg.Payload)
-			
-			// 1. Unmarshal into map first to maintain flexibility for Sync-Async Bridge (e.g. file data)
-			var pMap map[string]interface{}
-			json.Unmarshal(pData, &pMap)
-
-			// 2. Unmarshal into strict ResponsePayload for Shell output logic
-			var resp globals.ResponsePayload
-			if err := json.Unmarshal(pData, &resp); err != nil {
-				log.Printf("Failed to parse response payload: %v", err)
+			pMap, ok := msg.Payload.(map[string]interface{})
+			if !ok {
+				log.Printf("Invalid response payload format")
 				continue
 			}
+
+			var resp globals.ResponsePayload
+			if so, ok := pMap["stdout"].(string); ok { resp.Stdout = so }
+			if se, ok := pMap["stderr"].(string); ok { resp.Stderr = se }
+			if pa, ok := pMap["path"].(string); ok { resp.Path = pa }
+			if req, ok := pMap["req_id"].(string); ok { resp.ReqID = req }
 
 			// Broadcast: Format output and send to Client.OutputChannel (Real-time Terminal)
 			if client != nil && client.OutputChannel != nil {
 				// Persistence: Update Output Log
 				if resp.ReqID != "" {
-					// ⚡️ V3.0.1 Quiet Heartbeat: Ignore periodic survival pings
+					// ✅ V3.0.1 Quiet Heartbeat: 忽略周期生存 ping（不写日志，防止滚屏）
 					if resp.ReqID == "heartbeat" {
-						log.Printf("[C2 IO] WS Heartbeat received from %s", clientUUID)
 						continue
 					}
 					go func() {
@@ -304,7 +311,7 @@ func ProcessWebSocket(conn *websocket.Conn, remoteAddr string, ln *globals.Liste
 				}
 			}
 
-			// Legacy Logging
+			// Legacy Logging—限制为最多 1000 条，防止长连接内存泄漏
 			logs, _ := globals.LogsMap.LoadOrStore(clientUUID, []string{})
 			logsArr := logs.([]string)
 			if resp.Stdout != "" {
@@ -312,6 +319,11 @@ func ProcessWebSocket(conn *websocket.Conn, remoteAddr string, ln *globals.Liste
 			}
 			if resp.Stderr != "" {
 				logsArr = append(logsArr, "[ERR] "+resp.Stderr)
+			}
+			// 截断：保留最新的 1000 条
+			const maxLogsPerAgent = 1000
+			if len(logsArr) > maxLogsPerAgent {
+				logsArr = logsArr[len(logsArr)-maxLogsPerAgent:]
 			}
 			globals.LogsMap.Store(clientUUID, logsArr)
 
@@ -387,6 +399,9 @@ func ProcessTCPConnection(conn net.Conn, remoteAddr string, ln *globals.Listener
 
 	log.Printf("[TCP] Starting message loop for %s", remoteAddr)
 	for {
+		// 🛡️ Anti-Slowloris: Set a read deadline for header (30s)
+		conn.SetReadDeadline(time.Now().Add(30 * time.Second))
+		
 		// 1. Read Header (4 bytes length)
 		header := make([]byte, 4)
 		if _, err := io.ReadFull(conn, header); err != nil {
@@ -397,14 +412,20 @@ func ProcessTCPConnection(conn net.Conn, remoteAddr string, ln *globals.Listener
 		if length == 0 {
 			continue
 		}
-		if length > 100*1024*1024 {
-			log.Printf("[TCP] Frame too large (%d bytes), closing connection", length)
+		
+		// 🛡️ Anti-DoS: Limit max frame size to 50MB
+		if length > 50*1024*1024 {
+			log.Printf("[TCP] Frame too large (%d bytes), closing connection for safety", length)
 			break
 		}
+
+		// 🛡️ Anti-Slowloris: Set deadline based on payload size (e.g., 2 mins max for 50MB) 
+		conn.SetReadDeadline(time.Now().Add(120 * time.Second))
 
 		// 2. Read Body
 		body := make([]byte, length)
 		if _, err := io.ReadFull(conn, body); err != nil {
+			log.Printf("[TCP] Failed to read body from %s (declared %d bytes): %v", remoteAddr, length, err)
 			break
 		}
 
@@ -447,9 +468,10 @@ func ProcessTCPConnection(conn net.Conn, remoteAddr string, ln *globals.Listener
 
 		switch msg.MsgType {
 		case "register":
-			pData, _ := json.Marshal(msg.Payload)
-			var p map[string]interface{}
-			json.Unmarshal(pData, &p)
+			p, ok := msg.Payload.(map[string]interface{})
+			if !ok {
+				continue
+			}
 			id, _ := p["uuid"].(string)
 			hostname, _ := p["hostname"].(string)
 			os, _ := p["os"].(string)
@@ -516,12 +538,16 @@ func ProcessTCPConnection(conn net.Conn, remoteAddr string, ln *globals.Listener
 			startWriteLoop(client)
 
 		case "response":
-			pData, _ := json.Marshal(msg.Payload)
-			var pMap map[string]interface{}
-			json.Unmarshal(pData, &pMap)
+			pMap, ok := msg.Payload.(map[string]interface{})
+			if !ok {
+				continue
+			}
 
 			var resp globals.ResponsePayload
-			json.Unmarshal(pData, &resp)
+			if so, ok := pMap["stdout"].(string); ok { resp.Stdout = so }
+			if se, ok := pMap["stderr"].(string); ok { resp.Stderr = se }
+			if pa, ok := pMap["path"].(string); ok { resp.Path = pa }
+			if req, ok := pMap["req_id"].(string); ok { resp.ReqID = req }
 
 			if client != nil && client.OutputChannel != nil {
 				if resp.ReqID != "" {

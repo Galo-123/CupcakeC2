@@ -44,6 +44,10 @@ func ReadFile(agentID, path string) (*FsResponse, error) {
 	return callFsAgent(agentID, FsRequest{Action: "read", Path: path})
 }
 
+func DownloadFile(agentID, path string) (*FsResponse, error) {
+	return callFsAgent(agentID, FsRequest{Action: "download", Path: path})
+}
+
 func DeleteFiles(agentID string, paths []string) (*FsResponse, error) {
 	return callFsAgent(agentID, FsRequest{Action: "rm", Paths: paths})
 }
@@ -106,13 +110,15 @@ func callFsAgentFallback(agentID string, req FsRequest) (*FsResponse, error) {
 		cmdType = "file_ls"
 	case "read":
 		cmdType = "file_download" // Agent uses file_download to return bytes
+	case "download":
+		cmdType = "file_download" // Agent uses file_download for binary too
 	case "rm":
 		cmdType = "file_delete" // Agent uses file_delete
 	default:
 		return nil, fmt.Errorf("unsupported fallback action: %s", req.Action)
 	}
 
-	reqID := fmt.Sprintf("FS-%d", time.Now().UnixNano())
+	reqID := fmt.Sprintf("FS-%d", globals.GetNextReqID())
 	resChan := make(chan interface{}, 1)
 	globals.PendingResponses.Store(reqID, resChan)
 	defer globals.PendingResponses.Delete(reqID)
@@ -166,5 +172,103 @@ func callFsAgentFallback(agentID string, req FsRequest) (*FsResponse, error) {
 		return &fsResp, nil
 	case <-time.After(20 * time.Second):
 		return nil, fmt.Errorf("agent response timeout")
+	}
+}
+
+// DownloadChunk calls the file_download_chunk command on the Agent
+func DownloadChunk(agentID, path string, offset uint64, size int) (string, bool, error) {
+	val, ok := globals.Clients.Load(agentID)
+	if !ok {
+		return "", false, fmt.Errorf("agent offline")
+	}
+	client := val.(*globals.Client)
+
+	reqID := fmt.Sprintf("FSDC-%d", globals.GetNextReqID())
+	resChan := make(chan interface{}, 1)
+	globals.PendingResponses.Store(reqID, resChan)
+	defer globals.PendingResponses.Delete(reqID)
+
+	cmdContent, _ := json.Marshal(map[string]interface{}{
+		"offset": offset,
+		"size":   size,
+	})
+
+	msg := globals.MessageWrapper{
+		MsgType: "command",
+		Payload: globals.CommandPayload{
+			CommandType:    "file_download_chunk",
+			CommandContent: string(cmdContent),
+			Path:           path,
+			ReqID:          reqID,
+		},
+	}
+
+	if err := WriteEncryptedMessage(client, msg); err != nil {
+		return "", false, err
+	}
+
+	select {
+	case res := <-resChan:
+		pMap := res.(map[string]interface{})
+		if stderr, ok := pMap["stderr"].(string); ok && stderr != "" {
+			return "", false, fmt.Errorf("%s", stderr)
+		}
+		
+		if stdout, ok := pMap["stdout"].(string); ok {
+			var chunkResp struct {
+				Data  string `json:"data"`
+				IsEOF bool   `json:"is_eof"`
+			}
+			if err := json.Unmarshal([]byte(stdout), &chunkResp); err == nil {
+				return chunkResp.Data, chunkResp.IsEOF, nil
+			}
+		}
+		return "", false, fmt.Errorf("invalid response format")
+	case <-time.After(30 * time.Second):
+		return "", false, fmt.Errorf("agent chunk response timeout")
+	}
+}
+
+// UploadChunk calls the file_upload_chunk command on the Agent
+func UploadChunk(agentID, path, dataBase64 string, isAppend bool) error {
+	val, ok := globals.Clients.Load(agentID)
+	if !ok {
+		return fmt.Errorf("agent offline")
+	}
+	client := val.(*globals.Client)
+
+	reqID := fmt.Sprintf("FSUC-%d", globals.GetNextReqID())
+	resChan := make(chan interface{}, 1)
+	globals.PendingResponses.Store(reqID, resChan)
+	defer globals.PendingResponses.Delete(reqID)
+
+	cmdContent, _ := json.Marshal(map[string]interface{}{
+		"is_append": isAppend,
+	})
+
+	msg := globals.MessageWrapper{
+		MsgType: "command",
+		Payload: globals.CommandPayload{
+			CommandType:    "file_upload_chunk",
+			CommandContent: string(cmdContent),
+			Path:           path,
+			Data:           dataBase64,
+			ReqID:          reqID,
+		},
+	}
+
+	if err := WriteEncryptedMessage(client, msg); err != nil {
+		return err
+	}
+
+	select {
+	case res := <-resChan:
+		pMap := res.(map[string]interface{})
+		if stderr, ok := pMap["stderr"].(string); ok && stderr != "" {
+			return fmt.Errorf("%s", stderr)
+		}
+		return nil
+	case <-time.After(30 * time.Second):
+		return fmt.Errorf("agent chunk response timeout")
 	}
 }

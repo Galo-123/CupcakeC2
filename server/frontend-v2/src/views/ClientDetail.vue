@@ -129,11 +129,6 @@ let pingInterval = null
 
 // Handle return to list - clear terminal history
 const handleReturnToList = () => {
-  // Clear localStorage for this client's terminal history
-  const storageKey = `terminal_history_${clientId.value}`
-  localStorage.removeItem(storageKey)
-  console.log('[ClientDetail] Cleared terminal history for', clientId.value)
-  
   // Navigate back to clients list
   router.push('/clients')
 }
@@ -146,19 +141,9 @@ const initSocket = () => {
   const token = localStorage.getItem('cupcake_token')
   const wsUrl = `${protocol}//${host}/api/shell/${clientId.value}?token=${encodeURIComponent(token)}`
 
-  console.log('[ClientDetail] Connecting to WebSocket:', wsUrl)
   socket.value = new WebSocket(wsUrl)
 
   socket.value.onopen = () => {
-    console.log('[ClientDetail] WebSocket Connected')
-    // Register logic if needed, or backend handles it automatically on connection
-    // But per requirements, register sends JSON. 
-    // Usually the Client (victim) registers. 
-    // The Dashboard (us) just listens?
-    // The instructions say: "GET /ws: WebSocket Upgrade...". 
-    // "POST /api/cmd: receive JSON ... find correspond WebSocket".
-    // This implies we are the Dashboard.
-    
     // Keep alive if needed
     pingInterval = setInterval(() => {
         if (socket.value?.readyState === WebSocket.OPEN) {
@@ -175,12 +160,11 @@ const initSocket = () => {
   }
 
   socket.value.onclose = () => {
-    console.log('[ClientDetail] WebSocket Closed')
     // Reconnect logic could be added here
   }
 
-  socket.value.onerror = (error) => {
-    console.error('[ClientDetail] WebSocket Error:', error)
+  socket.value.onerror = () => {
+    // WebSocket error: silently handled, no console leak
   }
 }
 

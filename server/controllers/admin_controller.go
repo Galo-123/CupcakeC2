@@ -206,6 +206,15 @@ func HandleMaintenanceReset(c *gin.Context) {
 	store.DB.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&model.CommandLog{})
 
 	globals.Clients.Range(func(key, value interface{}) bool {
+		client := value.(*globals.Client)
+		// 🛡️ 正确清理：先关闭 OutputChannel，防止 goroutine 泄漏
+		if client.OutputChannel != nil {
+			// 用 recover 保护，避免重复关闭 panic
+			func() {
+				defer func() { recover() }()
+				close(client.OutputChannel)
+			}()
+		}
 		globals.Clients.Delete(key)
 		return true
 	})

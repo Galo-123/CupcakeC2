@@ -32,9 +32,11 @@ func RestoreListeners() {
 			EncryptKey:        l.EncryptKey,
 			EncryptionSalt:    l.EncryptionSalt,
 			ObfuscateMode:     l.ObfuscateMode,
+			CustomPath:        l.CustomPath,
 			NSDomain:          l.NSDomain,
 			PublicDNS:         l.PublicDNS,
 			HeartbeatInterval: l.HeartbeatInterval,
+			HeartbeatJitter:   l.HeartbeatJitter,
 			MaxRetry:          l.MaxRetry,
 			Status:            l.Status,
 		}
@@ -54,7 +56,11 @@ func RestoreListeners() {
 func StartListenerInstance(ln *globals.Listener) error {
 	if ln.Protocol == "WebSocket" {
 		mux := http.NewServeMux()
-		mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		path := ln.CustomPath
+		if path == "" || !strings.HasPrefix(path, "/") {
+			path = "/ws"
+		}
+		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 			conn, err := globals.Upgrader.Upgrade(w, r, nil)
 			if err != nil { return }
 			go ProcessWebSocket(conn, r.RemoteAddr, ln)
@@ -80,6 +86,9 @@ func StartListenerInstance(ln *globals.Listener) error {
 			err = ln.DNSServer.(*dns.Server).ListenAndServe()
 		} else if ln.Protocol == "TCP" {
 			StartTCPListener(ln)
+			return
+		} else if ln.Protocol == "Bind-TCP" || ln.Protocol == "正向TCP" {
+			ln.Status = "Running"
 			return
 		}
 

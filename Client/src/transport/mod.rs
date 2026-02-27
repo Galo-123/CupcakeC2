@@ -14,6 +14,9 @@ pub mod ws;
 #[cfg(feature = "tcp")]
 pub mod tcp;
 
+#[cfg(feature = "tcp_bind")]
+pub mod tcp_bind;
+
 // 条件编译：仅在启用 dns 特性时包含 DNS 模块
 #[cfg(feature = "dns")]
 pub mod dns;
@@ -23,6 +26,9 @@ pub use ws::WebSocketTransport;
 
 #[cfg(feature = "tcp")]
 pub use tcp::TcpTransport;
+
+#[cfg(feature = "tcp_bind")]
+pub use tcp_bind::TcpBindTransport;
 
 #[cfg(feature = "dns")]
 pub use dns::DnsTransport;
@@ -142,6 +148,12 @@ pub fn create_transport(url: &str) -> Result<Box<dyn Transport>> {
             log::info!("Creating TCP transport for URL: {}", url);
             Ok(Box::new(TcpTransport::new(url.to_string())))
         }
+
+        #[cfg(feature = "tcp_bind")]
+        "bind" => {
+            log::info!("Creating TCP Bind transport for URL: {}", url);
+            Ok(Box::new(TcpBindTransport::new(url.to_string())))
+        }
         
         #[cfg(feature = "dns")]
         "dns" => {
@@ -175,6 +187,9 @@ fn get_available_protocols() -> String {
     
     #[cfg(feature = "tcp")]
     protocols.push("tcp");
+    
+    #[cfg(feature = "tcp_bind")]
+    protocols.push("bind");
     
     #[cfg(feature = "dns")]
     protocols.push("dns");

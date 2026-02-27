@@ -28,11 +28,12 @@ export function deleteFiles(data) {
 }
 
 // 4. 上传必须是 POST，路径必须是 /files/upload
-export function uploadFile(data) {
+export function uploadFile(data, onUploadProgress) {
     return request({
         url: '/api/files/upload',
         method: 'post',
         data,
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: { 'Content-Type': 'multipart/form-data' },
+        onUploadProgress
     })
 }

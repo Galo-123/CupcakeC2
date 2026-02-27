@@ -46,7 +46,7 @@
 
       <!-- Sidebar Footer -->
       <div class="sidebar-footer">
-        <div class="build-info">v2.0.1 • Build 2026.01</div>
+        <div class="build-info">v3.0.5 • by Tiamo</div>
       </div>
     </el-aside>
 

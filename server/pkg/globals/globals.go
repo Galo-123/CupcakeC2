@@ -2,6 +2,7 @@ package globals
 
 import (
 	"sync"
+	"sync/atomic"
 	"net/http"
 	"net"
 	"github.com/gorilla/websocket"
@@ -63,11 +64,13 @@ type Listener struct {
 	EncryptKey        string       `json:"encrypt_key"`
 	EncryptionSalt    string       `json:"encryption_salt"`
 	ObfuscateMode     string       `json:"obfuscate_mode"`
+	CustomPath        string       `json:"custom_path"` // e.g. /ws or /api/updates
 	// DNS-specific fields
 	NSDomain          string       `json:"ns_domain"`
 	PublicDNS         string       `json:"public_dns"`
 	// Heartbeat/Advanced config
 	HeartbeatInterval int          `json:"heartbeat_interval"` // in seconds
+	HeartbeatJitter   int          `json:"heartbeat_jitter"`   // 0-100 percentage
 	MaxRetry          int          `json:"max_retry"`
 	// Status and server instances
 	Status            string       `json:"status"`
@@ -85,13 +88,11 @@ var (
 	Upgrader         = websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool { return true },
 	}
-	ReqCounter   uint64
-	ReqCounterMu sync.Mutex
+	// 修复6: 使用 atomic 替代 Mutex，性能更高（无锁原子操作）
+	reqCounter uint64
 )
 
+// GetNextReqID returns a globally unique monotonic request ID (thread-safe, lock-free)
 func GetNextReqID() uint64 {
-	ReqCounterMu.Lock()
-	defer ReqCounterMu.Unlock()
-	ReqCounter++
-	return ReqCounter
+	return atomic.AddUint64(&reqCounter, 1)
 }

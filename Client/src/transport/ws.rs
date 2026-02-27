@@ -79,10 +79,27 @@ impl WebSocketTransport {
 #[async_trait]
 impl Transport for WebSocketTransport {
     async fn connect(&mut self) -> Result<()> {
+        use tokio_tungstenite::tungstenite::http::Request;
+        
         loop {
-            info!("Connecting to {}...", self.url);
+            debug!("Connecting to {}...", self.url);
             
-            match connect_async(&self.url).await {
+            // 🛡️ TRAFFIC CAMOUFLAGE: Set custom headers to mimic browser traffic
+            let mut request = Request::builder()
+                .uri(&self.url)
+                .header("User-Agent", crate::config::get_ua())
+                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
+                .header("Accept-Language", "en-US,en;q=0.5")
+                .header("Pragma", "no-cache")
+                .header("Cache-Control", "no-cache");
+
+            if let Some(host) = crate::config::get_host_header() {
+                request = request.header("Host", host);
+            }
+
+            let req = request.body(()).map_err(|e| ClientError::ConnectionError(e.to_string()))?;
+
+            match connect_async(req).await {
                 Ok((ws_stream, response)) => {
                     info!("Connected to server successfully!");
                     info!("Response status: {}", response.status());
@@ -94,10 +111,11 @@ impl Transport for WebSocketTransport {
                     return Ok(());
                 }
                 Err(e) => {
+                    // ... (rest of logic same)
                     // 连接失败，获取下一次重连延迟
                     let delay = self.backoff.next_delay();
                     
-                    error!(
+                    debug!(
                         "Failed to connect to {}: {}. Retrying in {} seconds...",
                         self.url,
                         e,
@@ -135,83 +153,85 @@ impl Transport for WebSocketTransport {
     }
     
     async fn receive(&mut self) -> Result<Vec<u8>> {
-        // 检查连接是否存在
-        let stream = self.stream.as_mut().ok_or_else(|| {
-            ClientError::ConnectionError("Not connected".to_string())
-        })?;
-        
-        // 接收下一条消息
-        match stream.next().await {
-            Some(Ok(Message::Binary(encrypted_data))) => {
-                debug!("Received binary message: {} bytes", encrypted_data.len());
-                let deobfuscated = crypto::deobfuscate_packet(encrypted_data);
-                match crypto::decrypt(&deobfuscated, &self.aes_key) {
-                    Ok(plaintext) => {
-                        debug!("Decrypted binary data: {} bytes", plaintext.len());
-                        Ok(plaintext)
-                    }
-                    Err(e) => {
-                        error!("Binary decryption failed: {}", e);
-                        Err(ClientError::ConnectionError(format!("Decryption error: {}", e)))
-                    }
-                }
-            }
-            Some(Ok(Message::Text(text))) => {
-                debug!("Received text message: {} bytes", text.len());
-                // 在开启混淆的情况下，Text 帧通常是混淆后的 Base64 字符串
-                let data = text.into_bytes();
-                let deobfuscated = crypto::deobfuscate_packet(data);
-                
-                match crypto::decrypt(&deobfuscated, &self.aes_key) {
-                    Ok(plaintext) => {
-                        debug!("Decrypted text data: {} bytes", plaintext.len());
-                        Ok(plaintext)
-                    }
-                    Err(_) => {
-                        // 如果解密失败，可能是服务端发来的纯文本（非混淆包）
-                        debug!("Text decryption failed, using raw data (debug/compat)");
-                        // 还原数据并返回原文
-                        Ok(deobfuscated)
+        loop {
+            // 检查连接是否存在
+            let stream = self.stream.as_mut().ok_or_else(|| {
+                ClientError::ConnectionError("Not connected".to_string())
+            })?;
+            
+            // 接收下一条消息
+            match stream.next().await {
+                Some(Ok(Message::Binary(encrypted_data))) => {
+                    debug!("Received binary message: {} bytes", encrypted_data.len());
+                    let deobfuscated = crypto::deobfuscate_packet(encrypted_data);
+                    match crypto::decrypt(&deobfuscated, &self.aes_key) {
+                        Ok(plaintext) => {
+                            debug!("Decrypted binary data: {} bytes", plaintext.len());
+                            return Ok(plaintext);
+                        }
+                        Err(e) => {
+                            error!("Binary decryption failed: {}", e);
+                            return Err(ClientError::ConnectionError(format!("Decryption error: {}", e)));
+                        }
                     }
                 }
-            }
-            Some(Ok(Message::Ping(data))) => {
-                debug!("Received ping, sending pong");
-                // 自动响应 ping
-                stream.send(Message::Pong(data)).await
-                    .map_err(|e| ClientError::ConnectionError(format!("WebSocket pong error: {}", e)))?;
-                // 递归调用以获取下一条实际消息
-                self.receive().await
-            }
-            Some(Ok(Message::Pong(_))) => {
-                debug!("Received pong");
-                // 忽略 pong，继续接收下一条消息
-                self.receive().await
-            }
-            Some(Ok(Message::Close(frame))) => {
-                info!("Received close frame: {:?}", frame);
-                // 清空连接
-                self.stream = None;
-                // 返回空数据表示连接关闭
-                Ok(Vec::new())
-            }
-            Some(Ok(Message::Frame(_))) => {
-                warn!("Received raw frame, ignoring");
-                // 忽略原始帧，继续接收下一条消息
-                self.receive().await
-            }
-            Some(Err(e)) => {
-                error!("WebSocket error: {}", e);
-                // 清空连接
-                self.stream = None;
-                Err(ClientError::ConnectionError(format!("WebSocket receive error: {}", e)))
-            }
-            None => {
-                warn!("WebSocket connection closed by server");
-                // 清空连接
-                self.stream = None;
-                // 返回空数据表示连接关闭
-                Ok(Vec::new())
+                Some(Ok(Message::Text(text))) => {
+                    debug!("Received text message: {} bytes", text.len());
+                    // 在开启混淆的情况下，Text 帧通常是混淆后的 Base64 字符串
+                    let data = text.into_bytes();
+                    let deobfuscated = crypto::deobfuscate_packet(data);
+                    
+                    match crypto::decrypt(&deobfuscated, &self.aes_key) {
+                        Ok(plaintext) => {
+                            debug!("Decrypted text data: {} bytes", plaintext.len());
+                            return Ok(plaintext);
+                        }
+                        Err(_) => {
+                            // 如果解密失败，可能是服务端发来的纯文本（非混淆包）
+                            debug!("Text decryption failed, using raw data (debug/compat)");
+                            // 还原数据并返回原文
+                            return Ok(deobfuscated);
+                        }
+                    }
+                }
+                Some(Ok(Message::Ping(data))) => {
+                    debug!("Received ping, sending pong");
+                    // 自动响应 ping
+                    stream.send(Message::Pong(data)).await
+                        .map_err(|e| ClientError::ConnectionError(format!("WebSocket pong error: {}", e)))?;
+                    // 循环继续，获取下一条消息
+                    continue;
+                }
+                Some(Ok(Message::Pong(_))) => {
+                    debug!("Received pong");
+                    // 忽略 pong，循环继续
+                    continue;
+                }
+                Some(Ok(Message::Close(frame))) => {
+                    info!("Received close frame: {:?}", frame);
+                    // 清空连接
+                    self.stream = None;
+                    // 返回空数据表示连接关闭
+                    return Ok(Vec::new());
+                }
+                Some(Ok(Message::Frame(_))) => {
+                    warn!("Received raw frame, ignoring");
+                    // 忽略原始帧，循环继续
+                    continue;
+                }
+                Some(Err(e)) => {
+                    error!("WebSocket error: {}", e);
+                    // 清空连接
+                    self.stream = None;
+                    return Err(ClientError::ConnectionError(format!("WebSocket receive error: {}", e)));
+                }
+                None => {
+                    warn!("WebSocket connection closed by server");
+                    // 清空连接
+                    self.stream = None;
+                    // 返回空数据表示连接关闭
+                    return Ok(Vec::new());
+                }
             }
         }
     }

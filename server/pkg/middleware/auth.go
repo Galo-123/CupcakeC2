@@ -38,7 +38,7 @@ func AuthMiddleware() gin.HandlerFunc {
 		path := c.Request.URL.Path
 		
 		// 1. 静态资源和登录接口免鉴权
-		if path == "/api/auth/login" || strings.HasPrefix(path, "/api/transfer/") || !strings.HasPrefix(path, "/api") {
+		if path == "/api/auth/login" || strings.HasPrefix(path, "/api/transfer/") || strings.HasPrefix(path, "/api/s/") || !strings.HasPrefix(path, "/api") {
 			c.Next()
 			return
 		}
@@ -51,14 +51,22 @@ func AuthMiddleware() gin.HandlerFunc {
 		}
 
 		clientIP := c.ClientIP()
-		if allowedIPs != "" && !strings.Contains(allowedIPs, clientIP) {
-			log.Printf("[Security] Access Denied for IP: %s (Not in whitelist)", clientIP)
-			c.JSON(http.StatusForbidden, gin.H{
-				"error": "Access Denied",
-				"msg":   "Your IP is not in the whitelist. Bruteforce protection is active.",
-			})
-			c.Abort()
-			return
+		if allowedIPs != "" {
+			ips := strings.Split(allowedIPs, ",")
+			isAllowed := false
+			for _, ip := range ips {
+				if strings.TrimSpace(ip) == clientIP {
+					isAllowed = true
+					break
+				}
+			}
+			if !isAllowed {
+				log.Printf("[Security] Access Denied for IP: %s (Not in whitelist)", clientIP)
+				// OpSec: Return generic 403 without detail
+				c.Status(http.StatusForbidden)
+				c.Abort()
+				return
+			}
 		}
 
 		// 3. Token 提取 (支持 Header 和 Query)
@@ -71,10 +79,7 @@ func AuthMiddleware() gin.HandlerFunc {
 		}
 
 		if token == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"error": "Unauthorized",
-				"msg":   "API Token required. Please provide via Authorization header.",
-			})
+			c.Status(http.StatusUnauthorized)
 			c.Abort()
 			return
 		}
@@ -100,7 +105,7 @@ func AuthMiddleware() gin.HandlerFunc {
 		if token == cachedToken {
 			if !mcpEnabled {
 				log.Printf("[Security] MCP API Attempt while service is DISABLED from IP: %s", clientIP)
-				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Service Disabled", "msg": "MCP Service is disabled."})
+				c.Status(http.StatusForbidden)
 				c.Abort()
 				return
 			}
@@ -151,7 +156,7 @@ func AuthMiddleware() gin.HandlerFunc {
 
 		if !isAuthenticated {
 			log.Printf("[Security] Invalid token attempt from IP: %s", clientIP)
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized", "msg": "Invalid or expired token."})
+			c.Status(http.StatusUnauthorized)
 			c.Abort()
 			return
 		}

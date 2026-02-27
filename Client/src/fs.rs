@@ -280,12 +280,75 @@ pub fn download(path: &str) -> Result<String> {
     
     debug!("Read {} bytes from file", data.len());
     
-    // 编码为 base64
-    let encoded = BASE64.encode(&data);
+	// 编码为 base64
+	let encoded = BASE64.encode(&data);
+	
+	info!("File downloaded successfully: {} ({} bytes)", path, data.len());
+	
+	Ok(encoded)
+}
+
+/// 分块上传文件
+pub fn upload_chunk(path: &str, data_base64: &str, is_append: bool) -> Result<()> {
+    info!("Uploading file chunk: {} (append: {})", path, is_append);
+    let data = match BASE64.decode(data_base64) {
+        Ok(d) => d,
+        Err(e) => {
+            return Err(ClientError::IoError(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("Invalid base64 data: {}", e),
+            )));
+        }
+    };
+    if let Some(parent) = Path::new(path).parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent)?;
+        }
+    }
+    use std::fs::OpenOptions;
+    use std::io::Write;
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .append(is_append)
+        .truncate(!is_append)
+        .open(path)
+        .map_err(ClientError::IoError)?;
+        
+    file.write_all(&data).map_err(ClientError::IoError)?;
+    Ok(())
+}
+
+/// 分块下载文件
+pub fn download_chunk(path: &str, offset: u64, size: usize) -> Result<(String, bool)> {
+    use std::io::{Read, Seek, SeekFrom};
+    use std::fs::File;
+    let path_obj = Path::new(path);
+    if !path_obj.is_file() {
+        return Err(ClientError::IoError(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "Not a valid file",
+        )));
+    }
     
-    info!("File downloaded successfully: {} ({} bytes)", path, data.len());
+    let mut file = File::open(path_obj).map_err(ClientError::IoError)?;
+    let metadata = file.metadata().map_err(ClientError::IoError)?;
+    let file_size = metadata.len();
     
-    Ok(encoded)
+    if offset >= file_size {
+        return Ok(("".to_string(), true)); // EOF
+    }
+    
+    file.seek(SeekFrom::Start(offset)).map_err(ClientError::IoError)?;
+    
+    let mut buffer = vec![0u8; size];
+    let n = file.read(&mut buffer).map_err(ClientError::IoError)?;
+    buffer.truncate(n);
+    
+    let is_eof = offset + (n as u64) >= file_size;
+    let encoded = BASE64.encode(&buffer);
+    
+    Ok((encoded, is_eof))
 }
 
 /// 删除文件或目录（递归）
@@ -367,6 +430,7 @@ pub async fn handle_stream(stream: Stream) {
             }
         },
         "read" => handle_read(&req.path),
+        "download" => handle_download(&req.path),
         "rm" => handle_rm(&req.path, req.paths),
         _ => FsResponse { status: "error".into(), error: Some("Unknown action".into()), ..Default::default() }
     };
@@ -376,6 +440,19 @@ pub async fn handle_stream(stream: Stream) {
     // ⚡️ FIX: Flush and Shutdown explicitly
     let _ = writer.flush().await;
     let _ = writer.shutdown().await; // Sends FIN, server sees EOF
+}
+
+/// 实现全量文件下载 (Base64)
+fn handle_download(path: &str) -> FsResponse {
+    info!("[FS] Downloading full file: {}", path);
+    match download(path) {
+        Ok(base64_data) => FsResponse {
+            status: "ok".into(),
+            content: Some(base64_data),
+            ..Default::default()
+        },
+        Err(e) => FsResponse { status: "error".into(), error: Some(e.to_string()), ..Default::default() }
+    }
 }
 
 /// 实现文件预览加载 (限制 50KB)

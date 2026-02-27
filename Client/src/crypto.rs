@@ -136,39 +136,32 @@ pub fn deobfuscate_packet(mut data: Vec<u8>) -> Vec<u8> {
 /// let encrypted = encrypt(plaintext, &key);
 /// ```
 pub fn encrypt(data: &[u8], key: &[u8]) -> Vec<u8> {
-    debug!("Encrypting {} bytes of data", data.len());
-    
-    // 验证密钥长度
-    assert_eq!(key.len(), 32, "AES-256 requires a 32-byte key");
+    // 验证密钥长度：不满足时静默返回空（调用方检查空返回）
+    if key.len() != 32 {
+        return Vec::new();
+    }
     
     // 创建 AES-256-GCM 密码器
-    let cipher = Aes256Gcm::new_from_slice(key)
-        .expect("Invalid key length");
+    let cipher = match Aes256Gcm::new_from_slice(key) {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
     
     // 生成随机 Nonce（12 字节）
     let mut nonce_bytes = [0u8; NONCE_LENGTH];
     OsRng.fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
     
-    debug!("Generated nonce: {} bytes", nonce_bytes.len());
-    
     // 加密数据
-    let ciphertext = cipher
-        .encrypt(nonce, data)
-        .expect("Encryption failed");
-    
-    debug!(
-        "Encryption successful: {} bytes plaintext -> {} bytes ciphertext",
-        data.len(),
-        ciphertext.len()
-    );
+    let ciphertext = match cipher.encrypt(nonce, data) {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
     
     // 组合 Nonce 和 Ciphertext：[Nonce (12 bytes) + Ciphertext]
     let mut result = Vec::with_capacity(NONCE_LENGTH + ciphertext.len());
     result.extend_from_slice(&nonce_bytes);
     result.extend_from_slice(&ciphertext);
-    
-    debug!("Final encrypted data: {} bytes (nonce + ciphertext)", result.len());
     
     result
 }

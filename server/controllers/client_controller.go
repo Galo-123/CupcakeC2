@@ -15,9 +15,8 @@ import (
 	"github.com/google/uuid"
 )
 
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
-}
+// upgrader 使用 globals 包中定义的全局实例，避免重复定义
+var upgrader = globals.Upgrader
 
 func StreamPTY(c *gin.Context) {
 	uuid := c.Param("uuid")
@@ -151,6 +150,9 @@ func HandleAdminShell(c *gin.Context) {
 	if err != nil { return }
 	defer ws.Close()
 
+	// 🛡️ Anti-DoS: 限制管理员 Shell WebSocket 单帧大小为 1MB（命令不应超过此大小）
+	ws.SetReadLimit(1 * 1024 * 1024)
+
 	go func() {
 		for output := range client.OutputChannel {
 			var packet hub.WsPacket
@@ -198,6 +200,31 @@ func SendCommand(c *gin.Context) {
 		return
 	}
 	c.JSON(200, gin.H{"status": "success"})
+}
+
+func HandleConnectBindAgent(c *gin.Context) {
+	var req struct {
+		TargetAddr string `json:"target_addr"`
+		ListenerID string `json:"listener_id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
+		return
+	}
+
+	val, ok := globals.Listeners.Load(req.ListenerID)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Listener not found"})
+		return
+	}
+	ln := val.(*globals.Listener)
+
+	if err := services.ConnectToBindAgent(req.TargetAddr, ln); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "Connecting to bind agent..."})
 }
 
 func GetResponse(c *gin.Context) {

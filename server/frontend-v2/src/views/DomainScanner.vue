@@ -93,7 +93,7 @@
           <el-select v-model="uploadForm.type" class="w-full" @change="onTypeChange">
             <el-option label="C# .NET 反射执行 (execute-assembly)" value="execute-assembly" />
             <el-option label="Linux 内存执行 (memfd-exec)" value="memfd-exec" />
-            <el-option label="Windows Shellcode 注入 (inject-shellcode)" value="inject-shellcode" />
+            <el-option label="Windows 傀儡进程 / Fork & Run (hollow-shellcode)" value="shellcode-inject" />
             <el-option label="原生可执行文件直接运行" value="native-exec" />
           </el-select>
         </el-form-item>
@@ -163,7 +163,7 @@ const filteredPlugins = computed(() => {
 
 const onTypeChange = (type) => {
   if (type === 'memfd-exec') uploadForm.value.required_os = 'linux'
-  if (type === 'execute-assembly' || type === 'inject-shellcode') uploadForm.value.required_os = 'windows'
+  if (type === 'execute-assembly' || type === 'shellcode-inject') uploadForm.value.required_os = 'windows'
 }
 
 const handleFileChange = (f) => {
@@ -232,7 +232,7 @@ const getTypeTag = (type) => {
   const map = {
     'execute-assembly': 'warning',
     'memfd-exec': 'success',
-    'inject-shellcode': 'danger',
+    'shellcode-inject': 'danger',
     'native-exec': ''
   }
   return map[type] || 'info'
@@ -242,7 +242,7 @@ const translateType = (type) => {
   const map = {
     'execute-assembly': 'C# 内存加载 (ExecuteAssembly)',
     'memfd-exec': 'Linux 内存执行 (Memfd)',
-    'inject-shellcode': 'Shellcode 注入 (Injection)',
+    'shellcode-inject': '傀儡进程注入 (Fork & Run)',
     'native-exec': '原生可执行运行 (Native)'
   }
   return map[type] || type

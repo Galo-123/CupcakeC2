@@ -29,15 +29,14 @@
         size="small"
         @click="addNewTab"
         class="add-tab-btn"
-        title="鏂板缓缁堢"
+        title="新建终端"
       />
     </div>
 
     <!-- Terminal Content Area -->
     <div class="terminal-content">
-      <!-- Debug: Show tab count -->
       <div v-if="tabs.length === 0" style="padding: 40px; text-align: center; color: #666;">
-        Loading terminal... If you see this, onMounted hasn't run yet.
+        正在初始化终端...
       </div>
       
       <div
@@ -66,7 +65,7 @@
           <el-input
             v-if="!tab.isPTY"
             v-model="tab.input"
-            placeholder="杈撳叆 Shell 鍛戒护骞跺洖杞?.."
+            placeholder="输入 Shell 命令并回车..."
             @keyup.enter="sendCommand(tab)"
             :disabled="tab.submitting"
             class="terminal-input-bar"
@@ -189,20 +188,18 @@ const sendCommand = async (tab) => {
       session_id: tab.sessionId 
     })
   } catch (e) {
-    ElMessage.error('鍛戒护涓嬪彂澶辫触')
+    ElMessage.error('命令下发失败')
   } finally {
     tab.submitting = false
   }
 }
 
 onMounted(() => {
-  console.log('[TerminalTabs] onMounted called, creating first tab...')
   // First tab defaults to PTY interactive shell
   const ptyTab = createTab(true)
   ptyTab.title = "Interactive Shell"
   tabs.value.push(ptyTab)
   activeTabName.value = ptyTab.name
-  console.log('[TerminalTabs] First tab created, tabs:', tabs.value)
 })
 
 // Expose for parent

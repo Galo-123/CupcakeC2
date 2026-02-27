@@ -40,7 +40,8 @@ export const getListeners = () => request.get('/api/listeners')
 export const deleteClient = (uuid) => request.delete(`/api/clients/${uuid}`)
 
 // 文件传输 (保持在 index.js)
-export const fsDownload = (data, onDownloadProgress) => request.post('/api/files/download', data, {
+export const fsDownload = (data, onDownloadProgress) => request.get('/api/files/download', {
+    params: data,
     responseType: 'blob',
     onDownloadProgress
 })

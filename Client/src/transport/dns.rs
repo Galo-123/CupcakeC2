@@ -113,7 +113,7 @@ impl DnsTransport {
                 };
                 config.add_name_server(name_server);
                 
-                info!("DNS resolver configured with custom server: {}", resolver_addr);
+                // info!("DNS resolver configured with custom server: {}", resolver_addr);
                 return TokioAsyncResolver::tokio(config, opts);
             } else {
                 warn!("Failed to parse custom DNS resolver address: {}", resolver_addr);
@@ -209,7 +209,7 @@ impl Transport for DnsTransport {
         // 标记为已连接
         self.connected = true;
         
-        info!("DNS transport connected (connectionless protocol)");
+        // info!("DNS transport connected (connectionless protocol)");
         Ok(())
     }
     

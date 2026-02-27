@@ -274,9 +274,23 @@ pub async fn execute_wasm_skill(wasm_bytes: &[u8], args: serde_json::Value) -> C
     }).expect("Failed to define host_call");
 
     linker.func_wrap("env", "host_report_result", |mut caller: Caller<'_, WasmState>, ptr: u32, len: u32| {
-        let memory = caller.get_export("memory").unwrap().into_memory().unwrap();
+        let memory = match caller.get_export("memory").and_then(|m| m.into_memory()) {
+            Some(m) => m,
+            None => {
+                error!("Wasm module does not export memory");
+                return;
+            }
+        };
         let data = memory.data(&caller);
-        let result = &data[ptr as usize..(ptr + len) as usize];
+        let start = ptr as usize;
+        let end = start.saturating_add(len as usize);
+        let result = match data.get(start..end) {
+            Some(r) => r,
+            None => {
+                error!("Wasm memory read out of bounds in host_report_result!");
+                return;
+            }
+        };
         let log_msg = String::from_utf8_lossy(result).to_string();
         info!("[+] Wasm Skill Result: {}", log_msg);
         

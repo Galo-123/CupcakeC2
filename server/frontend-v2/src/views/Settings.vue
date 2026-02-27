@@ -147,6 +147,16 @@
                 <div class="form-tip">非 API 路径访问时，服务端会自动重定向到该地址。</div>
               </el-form-item>
               
+              <el-form-item label="[Web] 入场账号">
+                <el-input v-model="globalConfig.web_auth_user" placeholder="浏览器弹窗验证用户名" />
+                <div class="form-tip">Nginx 风格的双重锁机制，第一层浏览器口令。</div>
+              </el-form-item>
+
+              <el-form-item label="[Web] 入场口令">
+                <el-input v-model="globalConfig.web_auth_password" placeholder="浏览器弹窗验证密码" show-password />
+                <div class="form-tip">确保在加载 JS 前阻断扫描器。</div>
+              </el-form-item>
+              
               <el-divider />
               <h3>API 与访问安全</h3>
               <el-form-item label="Master API Token">
@@ -299,6 +309,8 @@ const globalConfig = reactive({
   system_api_token: '',
   system_mcp_enabled: 'true',
   opsec_cloak_url: '',
+  web_auth_user: 'admin',
+  web_auth_password: 'cupcake',
   allowed_ips: ''
 })
 

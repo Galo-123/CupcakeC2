@@ -104,7 +104,7 @@ const handlePtyJsonMessage = (jsonStr) => {
     }
     if (msg && msg.type === 'JSON_DATA') {
       ptyMode = 'fallback'
-      console.log('[PTY] Received JSON data, filtering from terminal.')
+      // JSON data received: silently filter from terminal display
       return
     }
     if (msg && msg.content !== undefined && msg.content !== null) {

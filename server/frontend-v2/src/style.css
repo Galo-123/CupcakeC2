@@ -303,24 +303,8 @@ body {
   color: var(--text-primary);
 }
 
-.stat-card {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border-radius: var(--radius-lg);
-  padding: var(--spacing-lg);
-  box-shadow: var(--shadow-md);
-}
+/* .stat-card - 已移至 Dashboard.vue 的 scoped 样式中，全局版本已废弃 */
 
-.stat-card-value {
-  font-size: 32px;
-  font-weight: 700;
-  margin-bottom: var(--spacing-sm);
-}
-
-.stat-card-label {
-  font-size: 14px;
-  opacity: 0.9;
-}
 
 /* ========================================
    Scrollbar Styling

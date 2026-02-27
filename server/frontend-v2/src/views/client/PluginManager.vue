@@ -266,7 +266,7 @@ const downloadLog = () => {
 const getTypeTag = (type) => {
   if (type === 'execute-assembly') return 'warning'
   if (type === 'memfd-exec') return 'success'
-  if (type === 'inject-shellcode') return 'danger'
+  if (type === 'shellcode-inject') return 'danger'
   return ''
 }
 

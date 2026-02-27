@@ -102,7 +102,7 @@
       <span v-if="currentPath" style="margin-left: 20px;">当前: {{ currentPath }}</span>
     </div>
 
-    <!-- Hidden Native File Input -->
+    <!-- Hidden Native File Input (500MB max for safety) -->
     <input type="file" ref="fileInputRef" style="display: none" @change="processUpload" />
 
     <!-- File Preview Dialog -->
@@ -111,6 +111,14 @@
       <template #footer>
         <el-button @click="previewVisible = false">关闭</el-button>
       </template>
+    </el-dialog>
+
+    <!-- Transfer Progress Dialog -->
+    <el-dialog v-model="transferVisible" :title="transferTitle" width="400px" :close-on-click-modal="false" :show-close="false" destroy-on-close align-center>
+      <div style="text-align: center; padding: 20px 0;">
+         <el-progress type="circle" :percentage="transferProgress" :status="transferStatus" :stroke-width="10" />
+         <div style="margin-top: 20px; color: #606266; font-size: 14px;">{{ transferProgress === 100 ? '正在处理后端响应...' : '正在传输数据（分块中），请稍候...' }}</div>
+      </div>
     </el-dialog>
   </div>
 </template>
@@ -138,6 +146,11 @@ const previewContent = ref('')
 const contextMenuVisible = ref(false)
 const menuLeft = ref(0)
 const menuTop = ref(0)
+
+const transferVisible = ref(false)
+const transferProgress = ref(0)
+const transferTitle = ref('')
+const transferStatus = ref('')
 
 const isRoot = computed(() => {
   if (!currentPath.value) return true
@@ -220,7 +233,15 @@ const triggerUpload = () => {
 const processUpload = async (e) => {
   const file = e.target.files[0]
   if (!file) return
-  
+
+  // 🛡️ 大小限制：单文件最大 500MB（分块传输虽然安全，但过大的文件会导致浏览器上传超时）
+  const MAX_FILE_SIZE = 500 * 1024 * 1024
+  if (file.size > MAX_FILE_SIZE) {
+    ElMessage.error(`文件过大（${(file.size / 1024 / 1024).toFixed(1)} MB），请选择小于 500MB 的文件`)
+    e.target.value = ''
+    return
+  }
+
   loading.value = true
   ElMessage.info('正在准备上传...')
   
@@ -235,10 +256,25 @@ const processUpload = async (e) => {
     formData.append('path', targetPath)
     formData.append('file', file)
 
-    await uploadFile(formData)
-    ElMessage.success('上传成功')
-    refresh()
+    transferTitle.value = `上传: ${file.name}`
+    transferProgress.value = 0
+    transferStatus.value = ''
+    transferVisible.value = true
+
+    await uploadFile(formData, (progressEvent) => {
+      const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total)
+      transferProgress.value = percentCompleted
+    })
+    
+    transferStatus.value = 'success'
+    setTimeout(() => {
+      transferVisible.value = false
+      ElMessage.success('上传成功')
+      refresh()
+    }, 800)
   } catch(e) {
+    transferStatus.value = 'exception'
+    setTimeout(() => transferVisible.value = false, 1500)
     ElMessage.error('上传失败')
   } finally {
     loading.value = false
@@ -248,11 +284,31 @@ const processUpload = async (e) => {
 
 const downloadFile = async (row) => {
   if (row.is_dir) return
-  ElMessage.info('开始下载...')
+  ElMessage.info('开始请求下载组件...')
   try {
     const fullPath = currentPath.value + (currentPath.value.includes('/') ? '/' : '\\') + row.name
-    const response = await fsDownload({ uuid: props.clientId, path: fullPath })
     
+    transferTitle.value = `下载: ${row.name}`
+    transferProgress.value = 0
+    transferStatus.value = ''
+    transferVisible.value = true
+
+    const response = await fsDownload({ uuid: props.clientId, path: fullPath }, (progressEvent) => {
+      // Chunked 传输可能没有 total (长度未知)
+      if (progressEvent.total) {
+        const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total)
+        transferProgress.value = percentCompleted
+      } else if (row.size) {
+        // Fallback: estimate from directory listing size
+        let percent = Math.round((progressEvent.loaded * 100) / row.size)
+        transferProgress.value = percent > 100 ? 100 : percent
+      }
+    })
+    
+    // Ensure it shows 100% on completion if no total was provided
+    transferProgress.value = 100
+    transferStatus.value = 'success'
+
     const url = window.URL.createObjectURL(new Blob([response.data]))
     const link = document.createElement('a')
     link.href = url
@@ -260,8 +316,12 @@ const downloadFile = async (row) => {
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
+    
+    setTimeout(() => { transferVisible.value = false }, 800)
     ElMessage.success('下载完成')
   } catch (e) {
+    transferStatus.value = 'exception'
+    setTimeout(() => transferVisible.value = false, 1500)
     ElMessage.error('下载失败')
   }
 }

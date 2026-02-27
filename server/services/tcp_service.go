@@ -71,3 +71,41 @@ func SendTCPMessage(conn net.Conn, data []byte) error {
 	if _, err := conn.Write(data); err != nil { return err }
 	return nil
 }
+// ConnectToBindAgent initiates a connection to a forward (bind) agent
+func ConnectToBindAgent(targetAddr string, ln *globals.Listener) error {
+	log.Printf("[TCP] Attempting to connect to Bind Agent at %s...", targetAddr)
+	
+	conn, err := net.DialTimeout("tcp", targetAddr, 10*time.Second)
+	if err != nil {
+		return fmt.Errorf("failed to connect to bind agent: %v", err)
+	}
+
+	config := yamux.DefaultConfig()
+	config.EnableKeepAlive = true
+	config.KeepAliveInterval = 30 * time.Second
+	config.LogOutput = io.Discard
+
+	// 🛡️ 设计决策：服务端连接后作为 Yamux Server 运行，Agent 作为 Client
+	session, err := yamux.Server(conn, config)
+	if err != nil {
+		conn.Close()
+		return fmt.Errorf("yamux initialization failed: %v", err)
+	}
+
+	log.Printf("[TCP] Outbound session established to %s", targetAddr)
+
+	go func() {
+		// 等待 Agent 打开控制流 (Agent 实现了 Mode::Client)
+		stream, err := session.Accept()
+		if err != nil {
+			log.Printf("[TCP Error] Failed to accept stream from bind agent: %v", err)
+			session.Close()
+			return
+		}
+		
+		log.Printf("[TCP] Accepted control stream from bind agent at %s", targetAddr)
+		ProcessTCPConnection(stream, targetAddr, ln, session)
+	}()
+
+	return nil
+}

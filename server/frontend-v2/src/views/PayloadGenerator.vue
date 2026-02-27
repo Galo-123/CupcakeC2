@@ -196,11 +196,30 @@
       </el-col>
 
       <el-col :span="6">
-        <el-card shadow="never" class="stat-card">
-          <div class="stat-inner">
-            <div class="stat-label">Payloads Generated</div>
-            <div class="stat-value">2,841 <el-icon><Files /></el-icon></div>
-            <div class="stat-trend">+12 Today</div>
+        <el-card shadow="never" class="stager-card">
+          <template #header>
+            <div class="stager-header">
+              <span class="title-with-icon"><el-icon><Cpu /></el-icon> 一键上线 (Quick Online)</span>
+            </div>
+          </template>
+          <div class="stager-body" v-loading="stagerLoading">
+            <div v-if="stagerCommand" class="stager-command-wrapper">
+              <div class="command-text-container">
+                <code>{{ stagerCommand }}</code>
+              </div>
+              <el-button 
+                type="primary" 
+                size="small" 
+                :icon="CopyDocument" 
+                class="stager-copy-btn"
+                @click="copyStagerCommand"
+              >
+                复制命令
+              </el-button>
+            </div>
+            <div v-else class="stager-placeholder">
+              选择平台与监听器以生成命令
+            </div>
           </div>
         </el-card>
 
@@ -280,8 +299,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
-import { Monitor, Link, Warning, Download, Files, QuestionFilled, Cpu, Lock, Key, Minus, FullScreen } from '@element-plus/icons-vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { Monitor, Link, Warning, Download, Files, QuestionFilled, Cpu, Lock, Key, Minus, FullScreen, CopyDocument } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { getListeners, generateClient, request } from '@/api'
 import { Terminal as XTerm } from 'xterm'
@@ -314,6 +333,14 @@ const form = ref({
   useUPX: false,
   encryption_salt: '',
   obfuscation_mode: 'none'
+})
+
+const stagerLoading = ref(false)
+const stagerCommand = ref('')
+
+// Watch for platform/listener changes to update stager
+watch([() => form.value.combinedType, () => form.value.listenerId], () => {
+  fetchStagerCommand()
 })
 
 onMounted(async () => {
@@ -352,6 +379,9 @@ const previewUrl = computed(() => {
   if (proto === 'websocket') {
     return `ws://${form.value.lhost}:${selectedListener.value.port}/ws`
   }
+  if (proto === '正向tcp' || proto === 'bind-tcp') {
+    return `Waiting for connection on ${form.value.lhost}:${selectedListener.value.port}`
+  }
   if (proto === 'dns') {
     return `${selectedListener.value.ns_domain}`
   }
@@ -371,7 +401,7 @@ const onListenerChange = (id) => {
     }
 
     // Auto switch mode for non-standard listeners/archs
-    if (l.protocol === 'DNS' || l.protocol === 'TCP') {
+    if (l.protocol === 'DNS' || l.protocol === 'TCP' || l.protocol === '正向TCP' || l.protocol === 'Bind-TCP') {
       form.value.mode = 'build'
     }
   }
@@ -380,7 +410,7 @@ const onListenerChange = (id) => {
 // 移除 generateRandomSalt 函数以确保安全一致性
 
 const getProtocolType = (p) => {
-  const map = { 'WebSocket': 'success', 'DNS': 'warning', 'TCP': 'primary' }
+  const map = { 'WebSocket': 'success', 'DNS': 'warning', 'TCP': 'primary', '正向TCP': 'warning', 'Bind-TCP': 'warning' }
   return map[p] || 'info'
 }
 
@@ -579,6 +609,37 @@ const handleDirectBlob = (data, combinedType, os, asShellcode) => {
     link.setAttribute('download', filename)
     link.click()
     window.URL.revokeObjectURL(url)
+}
+
+const fetchStagerCommand = async () => {
+    if (!form.value.listenerId) return
+    
+    stagerLoading.value = true
+    try {
+        const os = form.value.combinedType.split('_')[0]
+        const arch = form.value.combinedType.includes('arm64') ? 'arm64' : 'x64'
+        
+        const res = await request.get('/api/stager', {
+            params: {
+                listener_id: form.value.listenerId,
+                os: os,
+                arch: arch,
+                host: form.value.lhost
+            }
+        })
+        stagerCommand.value = res.data.command
+    } catch (e) {
+        console.error("Stager generation failed", e)
+        stagerCommand.value = ''
+    } finally {
+        stagerLoading.value = false
+    }
+}
+
+const copyStagerCommand = () => {
+    if (!stagerCommand.value) return
+    navigator.clipboard.writeText(stagerCommand.value)
+    ElMessage.success('一键上线命令已复制')
 }
 </script>
 
@@ -837,32 +898,70 @@ const handleDirectBlob = (data, combinedType, os, asShellcode) => {
   100% { transform: scale(1); opacity: 1; }
 }
 
-/* Stats and Tips */
-.stat-card {
-  border-radius: 8px;
-  background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+/* Stager Card */
+.stager-card {
+  border-radius: 12px;
+  background: #1a1b26;
   color: white;
   margin-bottom: 20px;
-  border: none;
+  border: 1px solid #2e303e;
 }
 
-.stat-label {
+.stager-header {
+  color: #7aa2f7;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.stager-card :deep(.el-card__header) {
+  border-bottom: 1px solid #2e303e;
+  padding: 12px 20px;
+}
+
+.stager-body {
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+}
+
+.stager-command-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.command-text-container {
+  background: #16161e;
+  padding: 12px;
+  border-radius: 6px;
+  border: 1px solid #24283b;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.command-text-container code {
+  color: #00f2ea;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 12px;
-  opacity: 0.8;
+  word-break: break-all;
+  white-space: pre-wrap;
 }
 
-.stat-value {
-  font-size: 28px;
-  font-weight: bold;
-  margin: 8px 0;
+.stager-copy-btn {
+  width: 100%;
+  background: #24283b !important;
+  border: 1px solid #414868 !important;
+}
+
+.stager-placeholder {
+  flex: 1;
   display: flex;
   align-items: center;
-  gap: 10px;
-}
-
-.stat-trend {
-  font-size: 12px;
-  color: #67c23a;
+  justify-content: center;
+  color: #565f89;
+  font-size: 13px;
+  text-align: center;
+  font-style: italic;
 }
 
 .tip-card {
