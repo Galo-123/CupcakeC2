@@ -55,9 +55,8 @@ impl Transport for TcpBindTransport {
         let jitter = rand::thread_rng().gen_range(0..1000);
         tokio::time::sleep(tokio::time::Duration::from_millis(jitter)).await;
 
-        // ⚡ STEALTH: Zero logging and generic errors
         let listener = TcpListener::bind(&obfuscated_addr).await
-            .map_err(|_| ClientError::ConnectionError(String::new()))?;
+            .map_err(|e| ClientError::ConnectionError(format!("Bind Failed {}: {}", obfuscated_addr, e)))?;
             
         // 简单实现：只接受一个连接
         match listener.accept().await {

