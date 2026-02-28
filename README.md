@@ -1,4 +1,4 @@
-# 🧁 Cupcake C2 (v3.0.5)
+# Cupcake C2 (v3.0.5)
 
 ![License](https://img.shields.io/badge/License-MIT-purple.svg)
 ![Version](https://img.shields.io/badge/Version-3.0.5-blue.svg)
@@ -60,22 +60,54 @@ Cupcake 采用了经典的高性能混合开发模式，确保了服务端的高
 - **Node.js 18+**
 
 ### 快速启动
-1. **构建前端**: `cd server/frontend-v2 && npm install && npm run build`
-2. **初始化模板**: 运行根目录下的 `compile_windows.ps1` 进行 Agent 模板预编译。
-3. **启动服务端**: `cd server && go run .`
-4. **访问控制台**: `http://127.0.0.1:9999` (admin / cupcake123)
 
----
+**默认账户密码：admin / cupcake123**
 
-## 📋 版本历史
+#### windows
 
-### v3.0.5（当前版本）
-- **[Feature]** 集成 AMSI/ETW 运行时汇编级 Patch。
-- **[Feature]** 引入 Progressive Memory Ballooning 反沙箱模块。
-- **[Optimization]** 优化 Bind-TCP 重连逻辑，支持指数退避退避算法。
-- **[Security]** 移除生产版本中所有的 Agent fatal 错误本地日志输出，确保 0 足迹。
-- **[Bugfix]** 修复了动态编译下 Host 和心跳间隔参数传递丢失的问题。
-- **[UI]** 适配深色系现代化 Layout V2 布局。
+```
+##请确保在CupcakeC2目录下
+cd .\server\frontend-v2\
+npm install
+npm run build
+cd ../
+go run .
+```
+
+<img width="1431" height="768" alt="image" src="https://github.com/user-attachments/assets/66afdbdf-517e-416d-93e1-809e901e4155" />
+
+
+#### linux
+
+
+
+```
+##拉取项目
+git clone https://github.com/yellatiamo/CupcakeC2.git
+##授予快速搭建脚本权限
+chmod +x run_linux.sh 
+##后期再次启动
+cd server/
+go run .
+```
+<img width="1440" height="819" alt="image" src="https://github.com/user-attachments/assets/2a57fe18-d488-4a9a-a2d8-d0c7c81d22e6" />
+
+<img width="1436" height="818" alt="image" src="https://github.com/user-attachments/assets/7df8f7ca-9c00-405c-bffe-24a6e7bba571" />
+
+
+### 免杀效果展示
+
+> 检测linux样本
+<img width="1446" height="969" alt="image" src="https://github.com/user-attachments/assets/ef1296bf-64fa-40f6-b695-250bbf00963b" />
+
+
+
+> 检测windows样本
+
+<img width="1503" height="1134" alt="image" src="https://github.com/user-attachments/assets/27b63778-d448-413e-821a-994565b805d6" />
+
+
+
 
 ---
 
@@ -84,3 +116,4 @@ Cupcake 采用了经典的高性能混合开发模式，确保了服务端的高
 本工具仅限于**合法的授权安全测试**。使用者需遵守当地法律法规，严禁用于非法用途。作者不对于任何因滥用此工具导致的损害承担责任。
 
 **Developed by Tiamo | Version 3.0.5 • Build 2026**
+
