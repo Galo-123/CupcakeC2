@@ -250,7 +250,7 @@
       :title="`实时构建日志 (Task: ${currentTaskId.slice(0,8)})`"
       width="900px"
       :close-on-click-modal="false"
-      :show-close="!isMinimized"
+      :show-close="false"
       destroy-on-close
       class="terminal-dialog"
       :style="{ visibility: isMinimized ? 'hidden' : 'visible' }"
@@ -261,7 +261,8 @@
         <div class="custom-dialog-header">
           <span class="el-dialog__title">实时构建日志 (Task: {{ currentTaskId.slice(0,8) }})</span>
           <div class="header-btns">
-            <el-button link @click="isMinimized = true"><el-icon><Minus /></el-icon></el-button>
+            <el-button link @click="isMinimized = true" class="custom-header-btn"><el-icon><Minus /></el-icon></el-button>
+            <el-button link @click="showTerminal = false" class="custom-header-btn"><el-icon><Close /></el-icon></el-button>
           </div>
         </div>
       </template>
@@ -300,7 +301,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
-import { Monitor, Link, Warning, Download, Files, QuestionFilled, Cpu, Lock, Key, Minus, FullScreen, CopyDocument } from '@element-plus/icons-vue'
+import { Monitor, Link, Warning, Download, Files, QuestionFilled, Cpu, Lock, Key, Minus, Close, FullScreen, CopyDocument } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { getListeners, generateClient, request } from '@/api'
 import { Terminal as XTerm } from 'xterm'
@@ -851,7 +852,23 @@ const copyStagerCommand = () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding-right: 35px;
+}
+
+.header-btns {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.custom-header-btn {
+  font-size: 17px;
+  color: #909399 !important;
+  margin-left: 0 !important;
+  padding: 4px !important;
+}
+
+.custom-header-btn:hover {
+  color: #f7768e !important;
 }
 
 .build-bubble {
