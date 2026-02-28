@@ -79,6 +79,8 @@ func BuildAgentWithLogger(conf PayloadConfig, logChan chan<- string) (string, er
 		connStr = fmt.Sprintf("%s:%s", conf.Host, conf.Port)
 	} else if protocol == "dns" {
 		connStr = conf.Host 
+	} else if protocol == "bind-tcp" || protocol == "正向tcp" {
+		connStr = fmt.Sprintf("bind://0.0.0.0:%s", conf.Port)
 	} else {
 		connStr = fmt.Sprintf("ws://%s:%s/ws", conf.Host, conf.Port)
 	}

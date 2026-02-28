@@ -323,11 +323,27 @@ async fn run_bind_mode() -> Result<()> {
     use sys_info_collector::transport::{create_transport, Transport};
 
     let bind_addr = get_server_url();
-    let bind_url = if bind_addr.contains("://") {
-        bind_addr.replace("ws://", "bind://").replace("tcp://", "bind://")
-    } else {
-        format!("bind://{}", bind_addr)
-    };
+    let mut clean_url = bind_addr.clone();
+    
+    // 清除一切可能的前缀
+    if clean_url.starts_with("ws://") {
+        clean_url = clean_url.replace("ws://", "");
+    } else if clean_url.starts_with("wss://") {
+        clean_url = clean_url.replace("wss://", "");
+    } else if clean_url.starts_with("tcp://") {
+        clean_url = clean_url.replace("tcp://", "");
+    } else if clean_url.starts_with("bind://") {
+        clean_url = clean_url.replace("bind://", "");
+    }
+
+    // 清除路径部分 (如 /ws)
+    if let Some(pos) = clean_url.find('/') {
+        clean_url = clean_url[..pos].to_string();
+    }
+
+    // 默认绑定所有网卡 (如果原来是 127.0.0.1 或仅包含端口，修正为 0.0.0.0)
+    let port = clean_url.split(':').last().unwrap_or(&clean_url);
+    let bind_url = format!("bind://0.0.0.0:{}", port);
 
     let mut transport: Box<dyn Transport> = create_transport(&bind_url)?;
 
