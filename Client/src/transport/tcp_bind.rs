@@ -8,7 +8,6 @@ use crate::crypto;
 use crate::error::{ClientError, Result};
 use crate::transport::Transport;
 use async_trait::async_trait;
-use log::{info, warn};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio_util::compat::{FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt};
