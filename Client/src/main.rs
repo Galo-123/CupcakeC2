@@ -297,7 +297,7 @@ async fn run_tcp_mode() -> Result<()> {
 #[cfg(feature = "dns")]
 #[allow(dead_code)]
 async fn run_dns_mode() -> Result<()> {
-    use sys_info_collector::config::{get_dns_resolver, get_server_url};
+    use sys_info_collector::config::get_server_url;
     use sys_info_collector::handler::MessageHandler;
     use sys_info_collector::transport::{create_transport, Transport};
     
