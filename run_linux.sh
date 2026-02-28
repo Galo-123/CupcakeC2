@@ -252,5 +252,5 @@ echo -e "${GREEN}[+ ] 控制终端: http://127.0.0.1:9999 ${NC}"
 
 cd server
 echo -e "${YELLOW}[*] 正在以生产模式编译服务端 (Hardened Build)...${NC}"
-go build -ldflags="-s -w" -trimpath -o cupcake-server .
+go build -ldflags="-s -w" -buildvcs=false -trimpath -o cupcake-server .
 ./cupcake-server
