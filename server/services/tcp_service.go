@@ -75,9 +75,22 @@ func SendTCPMessage(conn net.Conn, data []byte) error {
 func ConnectToBindAgent(targetAddr string, ln *globals.Listener) error {
 	log.Printf("[TCP] Attempting to connect to Bind Agent at %s...", targetAddr)
 	
-	conn, err := net.DialTimeout("tcp", targetAddr, 10*time.Second)
+	var conn net.Conn
+	var err error
+	
+	// ⚡ RETRY LOGIC: Bind Agent might have jitter/delay or the port isn't open yet.
+	// Try 5 times with 2s interval.
+	for i := 0; i < 5; i++ {
+		conn, err = net.DialTimeout("tcp", targetAddr, 3*time.Second)
+		if err == nil {
+			break
+		}
+		log.Printf("[TCP] Connect attempt %d failed: %v. Retrying...", i+1, err)
+		time.Sleep(2 * time.Second)
+	}
+
 	if err != nil {
-		return fmt.Errorf("failed to connect to bind agent: %v", err)
+		return fmt.Errorf("failed to connect to bind agent after retries: %v", err)
 	}
 
 	config := yamux.DefaultConfig()

