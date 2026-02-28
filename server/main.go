@@ -179,7 +179,7 @@ func main() {
 
 		// Default credentials if not yet set in DB
 		if secretUser == "" { secretUser = "admin" }
-		if secretPass == "" { secretPass = "cupcake" }
+		if secretPass == "" { secretPass = "cupcake123" }
 
 		if !hasAuth || user != secretUser || password != secretPass {
 			// Trigger browser login popup
