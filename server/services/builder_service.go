@@ -136,7 +136,7 @@ func BuildAgentWithLogger(conf PayloadConfig, logChan chan<- string) (string, er
 
 	if protocol == "tcp" {
 		args = append(args, "--no-default-features", "--features", "tcp")
-	} else if strings.EqualFold(protocol, "Bind-TCP") || protocol == "正向TCP" {
+	} else if protocol == "bind-tcp" || protocol == "正向tcp" {
 		args = append(args, "--no-default-features", "--features", "tcp_bind")
 	} else if protocol == "dns" {
 		args = append(args, "--no-default-features", "--features", "dns")
