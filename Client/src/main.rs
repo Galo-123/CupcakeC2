@@ -114,10 +114,8 @@
 
     rt.block_on(async {
         let res = run().await;
-        if let Err(e) = res {
-            // Write debug log locally for troubleshooting why port bind fails
-            std::fs::write("agent_error.log", format!("Fatal Agent Error: {:?}", e)).ok();
-            // Silent failure for release version
+        if let Err(_e) = res {
+            // Silent failure: 生产版本不向控制台和磁盘输出任何错误
         }
     });
 }
